@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}Mapeamentos — Meta Leads Hub{% endblock %}
+
+{% block content %}
+<!-- OAuth Banner / Notificações -->
+{% if request.query_params.get('oauth_success') %}
+<div class="card" style="margin-bottom: 20px; border-color: var(--green); background: rgba(34,197,94,0.08); padding: 16px;">
+  <span style="color: var(--green); font-weight: 600;">🎉 Conexão efetuada com sucesso!</span>
+  <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">
+    Conectamos {{ request.query_params.get('oauth_success') }} página(s) da Meta ao seu Hub. O webhook foi inscrito automaticamente em cada uma.
+  </p>
+</div>
+{% endif %}
+
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+  <div>
+    <h1>🔗 Mapeamentos de Instâncias</h1>
+    <p>Configure qual CRM recebe os leads de cada formulário ou página da Meta.</p>
+  </div>
+  <div style="display: flex; gap: 10px;">
+    {% if app_id %}
+      <a href="https://www.facebook.com/v19.0/dialog/oauth?client_id={{ app_id }}&redirect_uri={{ redirect_uri }}&scope=pages_show_list,pages_read_engagement,leads_retrieval" 
+         class="btn btn-warning"
+         style="background: linear-gradient(135deg, #1877f2, #155ec2); color: white; border: none; font-weight: 600;">
+        📘 Conectar Facebook Login
+      </a>
+    {% else %}
+      <button class="btn btn-ghost btn-sm" style="cursor: not-allowed; border-color: var(--yellow); color: var(--yellow);" disabled title="Adicione META_APP_ID no seu .env para ativar o login">
+        ⚠ Configurar META_APP_ID no .env para ativar OAuth
+      </button>
+    {% endif %}
+    <button class="btn btn-primary" onclick="openModal()">+ Novo Mapeamento</button>
+  </div>
+</div>
+
+<!-- Seção 1: Páginas Conectadas via OAuth -->
+<div class="card" style="margin-bottom: 24px;">
+  <h2 style="font-size: 16px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
+    <span>📘</span> Páginas Conectadas via Facebook Login (OAuth)
+  </h2>
+  {% if connections %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Página</th>
+          <th>Page ID</th>
+          <th>Status</th>
+          <th>Adicionado em</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in connections %}
+        <tr>
+          <td><strong>{{ c.page_name }}</strong></td>
+          <td class="mono text-muted">{{ c.page_id }}</td>
+          <td>
+            <span class="badge badge-{{ 'active' if c.active else 'inactive' }}">
+              {{ 'Ativo (Webhook)' if c.active else 'Inativo' }}
+            </span>
+          </td>
+          <td class="text-muted" style="font-size:12px;">
+            {{ c.created_at.strftime('%d/%m/%Y %H:%M') if c.created_at else '—' }}
+          </td>
+          <td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <form method="post" action="/connections/{{ c.page_id }}/toggle" style="display:inline;">
+              <button type="submit" class="btn btn-ghost btn-sm">
+                {{ '⏸ Desativar' if c.active else '▶ Ativar' }}
+              </button>
+            </form>
+            <form method="post" action="/connections/{{ c.page_id }}/delete"
+              style="display:inline;"
+              onsubmit="return confirm('Remover conexão da página {{ c.page_name }}?')">
+              <button type="submit" class="btn btn-danger btn-sm">🗑 Remover</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding: 30px 20px;">
+    <div class="icon" style="font-size: 32px; margin-bottom: 8px;">📘</div>
+    <p style="font-size: 13px;">Nenhuma página do Facebook conectada via OAuth ainda.<br>
+    Clique em <strong>"Conectar Facebook Login"</strong> para autenticar as contas de anúncios dos clientes.
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Seção 2: Mapeamento de Instâncias -->
+<div class="card">
+  <h2 style="font-size: 16px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
+    <span>🔗</span> Mapeamentos de CRM Ativos
+  </h2>
+  {% if mappings %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Form ID</th>
+          <th>Page ID</th>
+          <th>URL do CRM</th>
+          <th>Token</th>
+          <th>Status</th>
+          <th>Criado em</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in mappings %}
+        <tr>
+          <td><strong>{{ m.client_name }}</strong></td>
+          <td class="mono text-muted">{{ m.form_id or '—' }}</td>
+          <td class="mono text-muted">{{ m.page_id or '—' }}</td>
+          <td style="font-size:13px;">
+            <span style="color:var(--accent)">{{ m.crm_url }}</span>
+          </td>
+          <td>
+            {% if m.crm_auth_token %}
+              <span class="badge badge-active">✓ configurado</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-{{ 'active' if m.active else 'inactive' }}">
+              {{ 'Ativo' if m.active else 'Inativo' }}
+            </span>
+          </td>
+          <td class="text-muted" style="font-size:12px;">
+            {{ m.created_at.strftime('%d/%m/%Y') if m.created_at else '—' }}
+          </td>
+          <td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <form method="post" action="/mappings/{{ m.id }}/toggle" style="display:inline;">
+              <button type="submit" class="btn btn-ghost btn-sm">
+                {{ '⏸ Desativar' if m.active else '▶ Ativar' }}
+              </button>
+            </form>
+            <form method="post" action="/mappings/{{ m.id }}/delete"
+              style="display:inline;"
+              onsubmit="return confirm('Remover mapeamento de {{ m.client_name }}?')">
+              <button type="submit" class="btn btn-danger btn-sm">🗑 Remover</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding: 30px 20px;">
+    <div class="icon" style="font-size: 32px; margin-bottom: 8px;">🔗</div>
+    <p style="font-size: 13px;">Nenhum mapeamento cadastrado ainda.<br>
+    Clique em <strong>"+ Novo Mapeamento"</strong> para configurar a primeira instância de CRM.
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Explicação -->
+<div class="card" style="margin-top:20px;padding:24px;">
+  <h2 style="font-size:16px;margin-bottom:12px;">ℹ️ Como funciona o mapeamento?</h2>
+  <ul style="color:var(--text-muted);font-size:14px;line-height:2;padding-left:20px;">
+    <li><strong style="color:var(--text)">OAuth Integrado:</strong> Ao fazer o login com o Facebook, a central gerencia os tokens e inscreve os formulários da Meta automaticamente.</li>
+    <li><strong style="color:var(--text)">Prioridade Form ID:</strong> Se um lead chegar com um <code>form_id</code> cadastrado, ele é encaminhado para o CRM correspondente.</li>
+    <li><strong style="color:var(--text)">Fallback Page ID:</strong> Se não houver mapeamento por <code>form_id</code>, a central tenta identificar o CRM cadastrado para o <code>page_id</code>.</li>
+  </ul>
+</div>
+
+<!-- Modal Novo Mapeamento -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h2>+ Novo Mapeamento</h2>
+    <form method="post" action="/mappings/create">
+      <div class="form-group">
+        <label>Nome do Cliente *</label>
+        <input type="text" name="client_name" placeholder="Ex: Empresa XYZ" required id="client-name-input" />
+      </div>
+      
+      <!-- Seletor de páginas conectadas via OAuth -->
+      {% if connections %}
+      <div class="form-group">
+        <label>Vincular com Página Conectada via OAuth (Recomendado)</label>
+        <select id="oauth-page-select" onchange="autoFillPageId(this.value)">
+          <option value="">-- Selecione uma página conectada via OAuth --</option>
+          {% for c in connections %}
+            <option value="{{ c.page_id }}">{{ c.page_name }} ({{ c.page_id }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <div class="form-group">
+        <label>Page ID da Meta <span class="text-muted">(Página do cliente que gerará leads)</span></label>
+        <input type="text" name="page_id" placeholder="Ex: 987654321098765" id="page-id-input" />
+      </div>
+      <div class="form-group">
+        <label>Form ID da Meta <span class="text-muted">(Opcional: preencha se quiser segmentar por formulário específico)</span></label>
+        <input type="text" name="form_id" placeholder="Ex: 123456789012345" id="form-id-input" />
+      </div>
+      <div class="form-group">
+        <label>URL do CRM (endpoint que recebe o POST) *</label>
+        <input type="url" name="crm_url" placeholder="https://crm-cliente.com/api/leads" required id="crm-url-input" />
+      </div>
+      <div class="form-group">
+        <label>Token de Autenticação <span class="text-muted">(opcional — Bearer Token)</span></label>
+        <input type="text" name="crm_auth_token" placeholder="seu_token_secreto" id="crm-token-input" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar Mapeamento</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openModal() {
+    document.getElementById('modal-overlay').classList.add('open');
+    setTimeout(() => document.getElementById('client-name-input').focus(), 100);
+  }
+  function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+  document.getElementById('modal-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeModal();
+  });
+  
+  function autoFillPageId(val) {
+    if (val) {
+      document.getElementById('page-id-input').value = val;
+    }
+  }
+</script>
+{% endblock %}

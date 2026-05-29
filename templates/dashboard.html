@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Meta Leads Hub{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>📊 Dashboard de Leads</h1>
+  <p>Todos os leads recebidos da Meta em tempo real.</p>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card total">
+    <div class="stat-label">Total</div>
+    <div class="stat-value">{{ stats.total }}</div>
+  </div>
+  <div class="stat-card forwarded">
+    <div class="stat-label">Encaminhados</div>
+    <div class="stat-value">{{ stats.forwarded }}</div>
+  </div>
+  <div class="stat-card received">
+    <div class="stat-label">Pendentes</div>
+    <div class="stat-value">{{ stats.received }}</div>
+  </div>
+  <div class="stat-card failed">
+    <div class="stat-label">Com Erro</div>
+    <div class="stat-value">{{ stats.failed }}</div>
+  </div>
+  <div class="stat-card skipped">
+    <div class="stat-label">Sem Mapeamento</div>
+    <div class="stat-value">{{ stats.skipped }}</div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card">
+  <form method="get" action="/" class="filters" id="filter-form">
+    <input
+      type="text"
+      name="search"
+      value="{{ search }}"
+      placeholder="🔍 Buscar por Lead ID, Form ID, nome, e-mail..."
+      id="search-input"
+    />
+    <select name="status" id="status-select" onchange="document.getElementById('filter-form').submit()">
+      <option value="">Todos os status</option>
+      <option value="received" {% if status_filter == 'received' %}selected{% endif %}>Pendente</option>
+      <option value="forwarded" {% if status_filter == 'forwarded' %}selected{% endif %}>Encaminhado</option>
+      <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Com Erro</option>
+      <option value="skipped" {% if status_filter == 'skipped' %}selected{% endif %}>Sem Mapeamento</option>
+    </select>
+    <button type="submit" class="btn btn-primary">Filtrar</button>
+    {% if search or status_filter %}
+      <a href="/" class="btn btn-ghost">Limpar</a>
+    {% endif %}
+  </form>
+
+  <!-- Table -->
+  {% if leads %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Lead ID</th>
+          <th>Campos do Lead</th>
+          <th>Form ID</th>
+          <th>Status</th>
+          <th>Destino CRM</th>
+          <th>Recebido em</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead in leads %}
+        <tr>
+          <td class="text-muted">{{ lead.id }}</td>
+          <td>
+            <span class="mono">{{ lead.lead_id[:20] }}…</span>
+          </td>
+          <td>
+            {% for key, val in lead.fields.items() %}
+              <span class="field-pill"><strong>{{ key }}:</strong> {{ val }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endfor %}
+          </td>
+          <td class="mono text-muted">{{ lead.form_id or '—' }}</td>
+          <td>
+            <span class="badge badge-{{ lead.status }}">
+              {% if lead.status == 'forwarded' %}✓ encaminhado
+              {% elif lead.status == 'failed' %}✗ erro
+              {% elif lead.status == 'received' %}⏳ pendente
+              {% elif lead.status == 'skipped' %}⚠ sem mapa
+              {% else %}{{ lead.status }}{% endif %}
+            </span>
+            {% if lead.error_message %}
+              <div class="text-muted" style="margin-top:4px;font-size:11px;">{{ lead.error_message[:60] }}…</div>
+            {% endif %}
+          </td>
+          <td class="text-muted" style="font-size:12px;">{{ lead.forwarded_to or '—' }}</td>
+          <td class="text-muted" style="font-size:12px;">
+            {{ lead.created_at.strftime('%d/%m/%Y %H:%M') if lead.created_at else '—' }}
+          </td>
+          <td>
+            {% if lead.status in ['failed', 'skipped', 'received'] %}
+            <form method="post" action="/leads/{{ lead.id }}/retry" style="display:inline;">
+              <button type="submit" class="btn btn-warning btn-sm">↻ Reenviar</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+      <a href="?page={{ page - 1 }}&status={{ status_filter }}&search={{ search }}">‹</a>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+        <a href="#" class="active">{{ p }}</a>
+      {% elif p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
+        <a href="?page={{ p }}&status={{ status_filter }}&search={{ search }}">{{ p }}</a>
+      {% elif p == 4 or p == total_pages - 3 %}
+        <a href="#" style="pointer-events:none;color:var(--gray);">…</a>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+      <a href="?page={{ page + 1 }}&status={{ status_filter }}&search={{ search }}">›</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">
+    <div class="icon">📭</div>
+    <p>Nenhum lead encontrado.<br>
+    {% if search or status_filter %}
+      <a href="/" style="color:var(--accent)">Limpar filtros</a>
+    {% else %}
+      Configure o webhook no painel da Meta para começar a receber leads.
+    {% endif %}
+    </p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
