@@ -3,6 +3,169 @@
 {% block title %}Dashboard — Meta Leads Hub{% endblock %}
 
 {% block content %}
+<style>
+  /* Custom extra styles for the detailed lead viewer modal */
+  .modal-lg {
+    max-width: 760px;
+    width: 95%;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+  .modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .close-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    cursor: pointer;
+    transition: color 0.2s;
+    line-height: 1;
+  }
+  .close-btn:hover {
+    color: var(--text);
+  }
+  .modal-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 18px;
+    gap: 4px;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+    white-space: nowrap;
+  }
+  .tab-btn:hover {
+    color: var(--text);
+  }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tab-content {
+    display: none;
+  }
+  .tab-content.active {
+    display: block;
+    animation: fadeIn 0.15s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .lead-details-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 580px) {
+    .lead-details-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .detail-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .detail-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .detail-value {
+    font-size: 13px;
+    font-weight: 500;
+    word-break: break-all;
+  }
+  .modal-divider {
+    border: 0;
+    height: 1px;
+    background: var(--border);
+    margin: 18px 0;
+  }
+  .status-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .json-block {
+    background: #090a0f !important;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 11px;
+    overflow-x: auto;
+    color: #a6accd;
+    max-height: 250px;
+    margin-top: 6px;
+  }
+  .error-alert {
+    background: rgba(239, 68, 68, 0.08);
+    border-left: 4px solid var(--red);
+    color: var(--text);
+    padding: 12px;
+    border-radius: 4px;
+    margin-top: 15px;
+    font-size: 13px;
+  }
+  .error-alert strong {
+    color: var(--red);
+  }
+  .fields-table-wrap {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .fields-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .fields-table th, .fields-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .fields-table th {
+    background: var(--bg-card2);
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .fields-table tr:last-child td {
+    border-bottom: none;
+  }
+</style>
+
 <div class="page-header">
   <h1>📊 Dashboard de Leads</h1>
   <p>Todos os leads recebidos da Meta em tempo real.</p>
@@ -102,7 +265,8 @@
           <td class="text-muted" style="font-size:12px;">
             {{ lead.created_at.strftime('%d/%m/%Y %H:%M') if lead.created_at else '—' }}
           </td>
-          <td>
+          <td style="white-space: nowrap;">
+            <button onclick="openLeadDetails('{{ lead.lead_id }}')" class="btn btn-ghost btn-sm">🔍 Detalhes</button>
             {% if lead.status in ['failed', 'skipped', 'received'] %}
             <form method="post" action="/leads/{{ lead.id }}/retry" style="display:inline;">
               <button type="submit" class="btn btn-warning btn-sm">↻ Reenviar</button>
@@ -149,4 +313,237 @@
   </div>
   {% endif %}
 </div>
+
+<!-- Modal de Detalhes do Lead -->
+<div id="lead-details-modal" class="modal-overlay" onclick="closeLeadDetailsModal(event)">
+  <div class="modal modal-lg" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2>🔍 Detalhes Completos do Lead</h2>
+      <button class="close-btn" onclick="closeLeadDetails()">&times;</button>
+    </div>
+    
+    <div class="modal-tabs">
+      <button class="tab-btn active" id="btn-tab-info" onclick="switchTab('tab-info')">📊 Informações</button>
+      <button class="tab-btn" id="btn-tab-fields" onclick="switchTab('tab-fields')">📝 Campos do Formulário</button>
+      <button class="tab-btn" id="btn-tab-raw" onclick="switchTab('tab-raw')">⚙️ Payload Bruto (Meta)</button>
+    </div>
+    
+    <div class="modal-body">
+      <!-- Tab: Informações -->
+      <div id="tab-info" class="tab-content active">
+        <div class="lead-details-grid">
+          <div class="detail-group">
+            <span class="detail-label">Lead ID</span>
+            <span class="detail-value mono" id="detail-lead-id"></span>
+          </div>
+          <div class="detail-group">
+            <span class="detail-label">Data de Criação (Meta)</span>
+            <span class="detail-value" id="detail-created-at"></span>
+          </div>
+          <div class="detail-group">
+            <span class="detail-label">Form ID</span>
+            <span class="detail-value mono" id="detail-form-id"></span>
+          </div>
+          <div class="detail-group">
+            <span class="detail-label">Page ID</span>
+            <span class="detail-value mono" id="detail-page-id"></span>
+          </div>
+          <div class="detail-group">
+            <span class="detail-label">Ad ID</span>
+            <span class="detail-value mono" id="detail-ad-id"></span>
+          </div>
+          <div class="detail-group">
+            <span class="detail-label">Campaign ID</span>
+            <span class="detail-value mono" id="detail-campaign-id"></span>
+          </div>
+        </div>
+        
+        <hr class="modal-divider">
+        
+        <div class="status-section">
+          <h3>Status de Integração CRM</h3>
+          <div class="status-badge-wrapper" style="margin: 8px 0 12px 0;">
+            <span class="badge" id="detail-status"></span>
+          </div>
+          <div id="detail-forward-url-container" class="detail-group" style="margin-bottom: 12px;">
+            <span class="detail-label">Destino do Envio (CRM URL)</span>
+            <span class="detail-value mono" id="detail-forward-url"></span>
+          </div>
+          
+          <!-- Alerta de Erro -->
+          <div id="detail-error-container" class="error-alert" style="display:none;">
+            <strong>Erro no Envio:</strong>
+            <p id="detail-error-message" style="margin-top: 4px;"></p>
+          </div>
+          
+          <!-- Resposta do CRM -->
+          <div id="detail-response-container" style="display:none; margin-top: 12px;">
+            <span class="detail-label">Resposta de Retorno do CRM</span>
+            <pre class="json-block" id="detail-forward-response"></pre>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Tab: Campos -->
+      <div id="tab-fields" class="tab-content">
+        <div class="fields-table-wrap">
+          <table class="fields-table">
+            <thead>
+              <tr>
+                <th>Campo de Formulário</th>
+                <th>Valor Informado</th>
+              </tr>
+            </thead>
+            <tbody id="detail-fields-body">
+              <!-- Injetado via Javascript -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- Tab: Raw Payload -->
+      <div id="tab-raw" class="tab-content">
+        <span class="detail-label" style="margin-bottom: 6px; display: block;">JSON recebido do Webhook da Meta</span>
+        <pre class="json-block" style="max-height: 320px;" id="detail-raw-payload"></pre>
+      </div>
+    </div>
+    
+    <div class="modal-actions" style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px;">
+      <button class="btn btn-ghost" onclick="closeLeadDetails()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+{% block scripts %}
+<script>
+  function switchTab(tabId) {
+    // Esconder todas as abas
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    // Desativar botões
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    
+    // Ativar a aba atual
+    document.getElementById(tabId).classList.add('active');
+    
+    // Ativar o botão atual
+    if (tabId === 'tab-info') document.getElementById('btn-tab-info').classList.add('active');
+    if (tabId === 'tab-fields') document.getElementById('btn-tab-fields').classList.add('active');
+    if (tabId === 'tab-raw') document.getElementById('btn-tab-raw').classList.add('active');
+  }
+
+  async function openLeadDetails(leadId) {
+    const modal = document.getElementById('lead-details-modal');
+    modal.classList.add('open');
+    
+    // Mostrar carregamento em todos os campos
+    document.getElementById('detail-lead-id').innerText = 'Buscando...';
+    document.getElementById('detail-created-at').innerText = 'Buscando...';
+    document.getElementById('detail-form-id').innerText = 'Buscando...';
+    document.getElementById('detail-page-id').innerText = 'Buscando...';
+    document.getElementById('detail-ad-id').innerText = 'Buscando...';
+    document.getElementById('detail-campaign-id').innerText = 'Buscando...';
+    document.getElementById('detail-status').className = 'badge';
+    document.getElementById('detail-status').innerText = 'Carregando';
+    document.getElementById('detail-forward-url').innerText = '';
+    document.getElementById('detail-forward-url-container').style.display = 'none';
+    document.getElementById('detail-error-container').style.display = 'none';
+    document.getElementById('detail-response-container').style.display = 'none';
+    document.getElementById('detail-fields-body').innerHTML = '<tr><td colspan="2" class="text-muted" style="text-align:center;">Buscando dados...</td></tr>';
+    document.getElementById('detail-raw-payload').innerText = 'Buscando...';
+    
+    // Sempre redefinir para a primeira aba (Informações) ao abrir
+    switchTab('tab-info');
+
+    try {
+      const response = await fetch(`/api/leads/${leadId}`);
+      if (!response.ok) throw new Error('Não foi possível obter os detalhes do lead.');
+      
+      const data = await response.json();
+      
+      // Popular Informações do Grid
+      document.getElementById('detail-lead-id').innerText = data.lead_id || '—';
+      
+      if (data.created_at) {
+        const dateObj = new Date(data.created_at);
+        document.getElementById('detail-created-at').innerText = dateObj.toLocaleString('pt-BR');
+      } else {
+        document.getElementById('detail-created-at').innerText = '—';
+      }
+      
+      document.getElementById('detail-form-id').innerText = data.form_id || '—';
+      document.getElementById('detail-page-id').innerText = data.page_id || '—';
+      document.getElementById('detail-ad-id').innerText = data.ad_id || '—';
+      document.getElementById('detail-campaign-id').innerText = data.campaign_id || '—';
+      
+      // Status
+      const statusBadge = document.getElementById('detail-status');
+      statusBadge.className = `badge badge-${data.status}`;
+      statusBadge.innerText = data.status;
+      
+      // CRM url
+      if (data.forwarded_to) {
+        document.getElementById('detail-forward-url').innerText = data.forwarded_to;
+        document.getElementById('detail-forward-url-container').style.display = 'block';
+      }
+      
+      // Mensagem de Erro
+      if (data.error_message) {
+        document.getElementById('detail-error-message').innerText = data.error_message;
+        document.getElementById('detail-error-container').style.display = 'block';
+      }
+      
+      // Resposta do Servidor
+      if (data.forward_response) {
+        try {
+          const parsed = JSON.parse(data.forward_response);
+          document.getElementById('detail-forward-response').innerText = JSON.stringify(parsed, null, 2);
+        } catch {
+          document.getElementById('detail-forward-response').innerText = data.forward_response;
+        }
+        document.getElementById('detail-response-container').style.display = 'block';
+      }
+      
+      // Tabela de campos resolvidos
+      const fieldsBody = document.getElementById('detail-fields-body');
+      fieldsBody.innerHTML = '';
+      const fields = data.fields || {};
+      const fieldKeys = Object.keys(fields);
+      
+      if (fieldKeys.length === 0) {
+        fieldsBody.innerHTML = '<tr><td colspan="2" class="text-muted" style="text-align:center;">Nenhum campo resolvido para este lead.</td></tr>';
+      } else {
+        fieldKeys.forEach(k => {
+          const tr = document.createElement('tr');
+          const tdK = document.createElement('td');
+          tdK.style.fontWeight = '600';
+          tdK.innerText = k;
+          const tdV = document.createElement('td');
+          tdV.innerText = fields[k];
+          tr.appendChild(tdK);
+          tr.appendChild(tdV);
+          fieldsBody.appendChild(tr);
+        });
+      }
+      
+      // Payload Bruto
+      document.getElementById('detail-raw-payload').innerText = JSON.stringify(data.raw_payload || {}, null, 2);
+
+    } catch (err) {
+      console.error(err);
+      document.getElementById('detail-lead-id').innerText = 'Erro ao carregar detalhes';
+      document.getElementById('detail-fields-body').innerHTML = `<tr><td colspan="2" style="text-align:center;color:var(--red);">${err.message}</td></tr>`;
+    }
+  }
+
+  function closeLeadDetails() {
+    document.getElementById('lead-details-modal').classList.remove('open');
+  }
+
+  function closeLeadDetailsModal(event) {
+    if (event.target === document.getElementById('lead-details-modal')) {
+      closeLeadDetails();
+    }
+  }
+</script>
+{% endblock %}
 {% endblock %}
