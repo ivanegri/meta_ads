@@ -42,7 +42,7 @@ def fetch_lead_details(lead_id: str, db: Database, page_id: Optional[str] = None
 
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{lead_id}"
     params = {
-        "fields": "id,created_time,field_data,form_id,ad_id,adset_id,campaign_id,page_id",
+        "fields": "id,created_time,field_data,form_id,ad_id,adset_id,campaign_id",
         "access_token": access_token,
     }
 
@@ -50,7 +50,10 @@ def fetch_lead_details(lead_id: str, db: Database, page_id: Optional[str] = None
         with httpx.Client(timeout=15.0) as client:
             response = client.get(url, params=params)
             response.raise_for_status()
-            return response.json()
+            res = response.json()
+            if page_id and isinstance(res, dict):
+                res["page_id"] = page_id
+            return res
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error fetching lead {lead_id}: {e.response.text}")
     except Exception as e:
