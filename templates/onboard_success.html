@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conectado com sucesso! — Meta Leads Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a12;
+      --surface: #12121e;
+      --border: rgba(255,255,255,0.08);
+      --text: #f0f0ff;
+      --text-muted: #8888aa;
+      --accent: #7c6af7;
+      --green: #22c55e;
+      --green-glow: rgba(34,197,94,0.3);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      top: -200px; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 500px;
+      background: radial-gradient(ellipse, rgba(34,197,94,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 52px 44px;
+      max-width: 460px;
+      width: 100%;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+      animation: fadeUp 0.5s ease forwards;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Círculo animado de sucesso */
+    .success-circle {
+      width: 88px; height: 88px;
+      background: rgba(34,197,94,0.1);
+      border: 2px solid rgba(34,197,94,0.4);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 28px;
+      font-size: 38px;
+      animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.1s both;
+      box-shadow: 0 0 30px var(--green-glow);
+    }
+
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.5); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .success-badge {
+      display: inline-block;
+      background: rgba(34,197,94,0.12);
+      border: 1px solid rgba(34,197,94,0.3);
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 14px;
+      border-radius: 100px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .highlight { color: var(--text); font-weight: 600; }
+
+    /* Info card da página conectada */
+    .connected-info {
+      background: rgba(34,197,94,0.06);
+      border: 1px solid rgba(34,197,94,0.2);
+      border-radius: 14px;
+      padding: 18px 20px;
+      text-align: left;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .connected-avatar {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, #1877f2, #4267B2);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+    .connected-details {
+      flex: 1;
+    }
+    .connected-label {
+      font-size: 11px;
+      color: var(--green);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+    .connected-name {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .connected-id {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: monospace;
+      margin-top: 2px;
+    }
+    .connected-check {
+      color: var(--green);
+      font-size: 20px;
+    }
+
+    /* Checklist do que aconteceu */
+    .done-list {
+      list-style: none;
+      text-align: left;
+      margin-bottom: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .done-list li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+      animation: slideIn 0.4s ease both;
+    }
+    .done-list li:nth-child(1) { animation-delay: 0.3s; }
+    .done-list li:nth-child(2) { animation-delay: 0.45s; }
+    .done-list li:nth-child(3) { animation-delay: 0.6s; }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-12px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .done-icon {
+      width: 24px; height: 24px;
+      background: rgba(34,197,94,0.15);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+      color: var(--green);
+    }
+
+    .cta-note {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      padding: 16px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    .footer { margin-top: 28px; font-size: 12px; color: var(--text-muted); opacity: 0.4; }
+  </style>
+</head>
+<body>
+  <div class="card">
+
+    <!-- Ícone animado de sucesso -->
+    <div class="success-circle">✓</div>
+
+    <div class="success-badge">Conexão realizada</div>
+
+    <h1>Tudo pronto, {{ client_name }}!</h1>
+    <p class="subtitle">
+      Sua Página do Facebook foi conectada com sucesso.<br>
+      A partir de agora, seus <span class="highlight">leads serão entregues automaticamente</span> no seu CRM.
+    </p>
+
+    <!-- Página conectada -->
+    <div class="connected-info">
+      <div class="connected-avatar">📘</div>
+      <div class="connected-details">
+        <div class="connected-label">Página conectada</div>
+        <div class="connected-name">{{ page_name }}</div>
+        <div class="connected-id">ID: {{ page_id }}</div>
+      </div>
+      <div class="connected-check">✓</div>
+    </div>
+
+    <!-- Lista do que aconteceu -->
+    <ul class="done-list">
+      <li>
+        <span class="done-icon">✓</span>
+        Token de acesso da Página salvo com segurança
+      </li>
+      <li>
+        <span class="done-icon">✓</span>
+        Webhook de leads inscrito automaticamente na Meta
+      </li>
+      <li>
+        <span class="done-icon">✓</span>
+        Página vinculada ao endpoint do seu CRM
+      </li>
+    </ul>
+
+    <div class="cta-note">
+      🚀 <strong style="color: var(--text);">O que acontece agora?</strong><br>
+      Quando alguém preencher um formulário de Lead Ad na sua página <strong>{{ page_name }}</strong>, os dados serão automaticamente enviados para o seu CRM em tempo real.
+    </div>
+
+    <div class="footer">Powered by Meta Leads Hub &mdash; HeadOffice</div>
+  </div>
+</body>
+</html>

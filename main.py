@@ -291,45 +291,67 @@ async def oauth_callback(
     request: Request,
     code: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Recebe o retorno do Facebook Login, troca o token e ativa as páginas."""
+    """
+    Recebe o retorno do Facebook Login.
+    - state presente → fluxo de onboarding do cliente (renderiza seletor de página).
+    - state ausente  → fluxo administrativo (conecta todas as páginas, redireciona para /mappings).
+    """
+    # Montar URL de retorno base
+    redirect_uri = f"{request.base_url.scheme}://{request.base_url.netloc}/oauth/callback"
+
     if error:
         logger.error(f"Erro no retorno do OAuth da Meta: {error}")
-        return HTMLResponse(
-            content=f"<h2>Erro na conexão com a Meta</h2><p>{error}</p><a href='/mappings'>Voltar para Mapeamentos</a>",
-            status_code=400
-        )
+        back_url = f"/onboard/{state}" if state else "/mappings"
+        return templates.TemplateResponse("onboard_landing.html", {
+            "request": request,
+            "client_name": "cliente",
+            "app_id": None,
+            "oauth_url": "",
+            "error": error
+        }, status_code=400)
 
     if not code:
         raise HTTPException(status_code=400, detail="Código de autorização ausente.")
 
-    # 1. Trocar código por Token de Longa Duração do usuário
-    redirect_uri = f"{request.base_url.scheme}://{request.base_url.netloc}/oauth/callback"
+    # Trocar código por token de longa duração do usuário
     user_token = services.exchange_code_for_user_token(code, redirect_uri)
-
     if not user_token:
         return HTMLResponse(
-            content="<h2>Erro</h2><p>Não foi possível obter o token de acesso do usuário.</p><a href='/mappings'>Voltar</a>",
+            content="<h2>Erro</h2><p>Não foi possível obter o token de acesso.</p>",
             status_code=400
         )
 
-    # 2. Obter as páginas e tokens de acesso de cada página
+    # Buscar páginas do usuário
     pages = services.fetch_user_pages(user_token)
 
+    # ── FLUXO CLIENTE: state presente (onboarding de mapping_id específico) ──
+    if state:
+        mapping_id = state
+        mapping = db.query(models.InstanceMapping).filter(
+            models.InstanceMapping.id == int(mapping_id)
+        ).first()
+        client_name = mapping.client_name if mapping else "seu cliente"
+
+        return templates.TemplateResponse("select_page.html", {
+            "request": request,
+            "client_name": client_name,
+            "mapping_id": mapping_id,
+            "user_access_token": user_token,
+            "pages": pages,
+        })
+
+    # ── FLUXO ADMIN: sem state, conecta todas as páginas automaticamente ──
     connected_count = 0
     for page in pages:
         page_id = page["id"]
         page_name = page["name"]
         page_token = page["access_token"]
 
-        # 3. Inscrever a página no webhook do nosso app Meta
-        subscribed = services.subscribe_page_to_app(page_id, page_token)
-        if not subscribed:
-            logger.warning(f"Não foi possível inscrever a página {page_name} no webhook.")
-            # Continuamos mesmo que dê erro na inscrição para salvar o token e permitir retry posterior
+        services.subscribe_page_to_app(page_id, page_token)
 
-        # 4. Salvar ou atualizar conexão no SQLite
         conn = db.query(models.MetaConnection).filter(models.MetaConnection.page_id == page_id).first()
         if not conn:
             conn = models.MetaConnection(
@@ -351,6 +373,105 @@ async def oauth_callback(
         connected_count += 1
 
     return RedirectResponse(url=f"/mappings?oauth_success={connected_count}", status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# Onboarding de Clientes
+# ---------------------------------------------------------------------------
+
+@app.get("/onboard/{mapping_id}", response_class=HTMLResponse, tags=["Onboarding"])
+async def onboard_landing(
+    request: Request,
+    mapping_id: int,
+    db: Session = Depends(get_db)
+):
+    """Landing page personalizada para o cliente iniciar o Facebook Login."""
+    mapping = db.query(models.InstanceMapping).filter(
+        models.InstanceMapping.id == mapping_id
+    ).first()
+    if not mapping:
+        return HTMLResponse(content="<h2>Link inválido ou expirado.</h2>", status_code=404)
+
+    app_id = META_APP_ID
+    redirect_uri = f"{request.base_url.scheme}://{request.base_url.netloc}/oauth/callback"
+
+    # Montar URL do diálogo OAuth com state = mapping_id
+    oauth_url = (
+        f"https://www.facebook.com/v19.0/dialog/oauth"
+        f"?client_id={app_id}"
+        f"&redirect_uri={redirect_uri}"
+        f"&scope=pages_show_list,pages_read_engagement,leads_retrieval"
+        f"&state={mapping_id}"
+    ) if app_id else ""
+
+    return templates.TemplateResponse("onboard_landing.html", {
+        "request": request,
+        "client_name": mapping.client_name,
+        "app_id": app_id,
+        "oauth_url": oauth_url,
+    })
+
+
+@app.post("/onboard/complete", tags=["Onboarding"])
+async def onboard_complete(
+    request: Request,
+    mapping_id: int = Form(...),
+    page_id: str = Form(...),
+    page_name: str = Form(...),
+    page_access_token: str = Form(...),
+    user_access_token: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Finaliza o onboarding do cliente:
+    - Registra o webhook na página selecionada.
+    - Salva/atualiza o MetaConnection com o page_access_token.
+    - Vincula o page_id ao InstanceMapping do cliente.
+    """
+    mapping = db.query(models.InstanceMapping).filter(
+        models.InstanceMapping.id == mapping_id
+    ).first()
+    if not mapping:
+        return HTMLResponse(content="<h2>Mapeamento não encontrado.</h2>", status_code=404)
+
+    client_name = mapping.client_name
+
+    # 1. Inscrever webhook na página selecionada
+    subscribed = services.subscribe_page_to_app(page_id, page_access_token)
+    if not subscribed:
+        logger.warning(f"Onboarding {client_name}: não foi possível inscrever webhook na página {page_name}.")
+
+    # 2. Salvar / atualizar MetaConnection
+    conn = db.query(models.MetaConnection).filter(models.MetaConnection.page_id == page_id).first()
+    if not conn:
+        conn = models.MetaConnection(
+            page_id=page_id,
+            page_name=page_name,
+            page_access_token=page_access_token,
+            user_access_token=user_access_token,
+            connected_by=client_name,
+            active=True
+        )
+        db.add(conn)
+    else:
+        conn.page_name = page_name
+        conn.page_access_token = page_access_token
+        conn.user_access_token = user_access_token
+        conn.connected_by = client_name
+        conn.active = True
+
+    # 3. Vincular page_id ao mapeamento do cliente
+    mapping.page_id = page_id
+    db.commit()
+
+    logger.info(f"Onboarding concluído: cliente={client_name}, page={page_name} ({page_id}), mapping_id={mapping_id}")
+
+    return templates.TemplateResponse("onboard_success.html", {
+        "request": request,
+        "client_name": client_name,
+        "page_name": page_name,
+        "page_id": page_id,
+    })
 
 
 @app.post("/connections/{connection_id}/toggle", tags=["Mappings"])

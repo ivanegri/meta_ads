@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Conectar Facebook — {{ client_name }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a12;
+      --surface: #12121e;
+      --surface2: #1a1a2e;
+      --border: rgba(255,255,255,0.08);
+      --text: #f0f0ff;
+      --text-muted: #8888aa;
+      --accent: #7c6af7;
+      --accent-glow: rgba(124,106,247,0.3);
+      --fb-blue: #1877f2;
+      --fb-blue-dark: #155ec2;
+      --green: #22c55e;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Fundo com gradientes suaves */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -200px; left: -200px;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(124,106,247,0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      bottom: -200px; right: -200px;
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(24,119,242,0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px 40px;
+      max-width: 440px;
+      width: 100%;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+      animation: fadeUp 0.5s ease forwards;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .logo-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+    .logo-icon {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, var(--accent), #5b4ce0);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    .logo-name {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .divider {
+      width: 100%;
+      height: 1px;
+      background: var(--border);
+      margin: 0 auto 32px;
+    }
+
+    .client-badge {
+      display: inline-block;
+      background: rgba(124,106,247,0.12);
+      border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 14px;
+      border-radius: 100px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      line-height: 1.2;
+      margin-bottom: 12px;
+    }
+    h1 span { color: var(--accent); }
+
+    .subtitle {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      margin-bottom: 36px;
+    }
+
+    /* Benefícios */
+    .benefits {
+      list-style: none;
+      text-align: left;
+      margin-bottom: 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .benefits li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .benefit-icon {
+      width: 30px; height: 30px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    /* Botão do Facebook */
+    .btn-facebook {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      padding: 15px 24px;
+      background: linear-gradient(135deg, var(--fb-blue), var(--fb-blue-dark));
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 20px rgba(24,119,242,0.4);
+      letter-spacing: -0.2px;
+      margin-bottom: 16px;
+    }
+    .btn-facebook:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(24,119,242,0.55);
+    }
+    .btn-facebook:active { transform: translateY(0); }
+    .btn-facebook svg { width: 22px; height: 22px; flex-shrink: 0; }
+
+    .security-note {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: var(--text-muted);
+      opacity: 0.5;
+    }
+
+    {% if not app_id %}
+    .no-config-banner {
+      background: rgba(234,179,8,0.1);
+      border: 1px solid rgba(234,179,8,0.3);
+      color: #fbbf24;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+    {% endif %}
+  </style>
+</head>
+<body>
+  <div class="card">
+
+    <!-- Logo / Branding do Hub -->
+    <div class="logo-wrap">
+      <div class="logo-icon">📡</div>
+      <span class="logo-name">Meta Leads Hub</span>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="client-badge">Convite exclusivo</div>
+
+    <h1>Conecte sua conta <span>Facebook</span></h1>
+    <p class="subtitle">
+      Olá, <strong style="color: var(--text);">{{ client_name }}</strong>!<br>
+      Para que seus leads cheguem automaticamente no CRM, autorize o acesso à sua Página do Facebook abaixo.
+    </p>
+
+    <!-- Benefícios -->
+    <ul class="benefits">
+      <li>
+        <span class="benefit-icon">⚡</span>
+        <span>Leads entregues em tempo real ao seu CRM sem intervenção manual</span>
+      </li>
+      <li>
+        <span class="benefit-icon">🔒</span>
+        <span>Processo seguro via protocolo OAuth 2.0 oficial do Facebook</span>
+      </li>
+      <li>
+        <span class="benefit-icon">🎯</span>
+        <span>Conecte especificamente a Página que gera seus anúncios de leads</span>
+      </li>
+    </ul>
+
+    {% if not app_id %}
+    <div class="no-config-banner">
+      ⚠️ <strong>Configuração pendente:</strong> O administrador ainda não configurou o <code>META_APP_ID</code> no servidor. Por favor, aguarde.
+    </div>
+    {% else %}
+    <!-- Botão de Login com Facebook -->
+    <a href="{{ oauth_url }}" class="btn-facebook" id="fb-connect-btn">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white">
+        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+      </svg>
+      Continuar com o Facebook
+    </a>
+    {% endif %}
+
+    <p class="security-note">
+      🔐 Você será redirecionado para o Facebook. Nenhuma senha é armazenada.
+    </p>
+
+    <div class="footer">
+      Powered by Meta Leads Hub &mdash; HeadOffice
+    </div>
+
+  </div>
+
+  <script>
+    // Adicionar feedback visual no clique
+    const btn = document.getElementById('fb-connect-btn');
+    if (btn) {
+      btn.addEventListener('click', function() {
+        this.innerHTML = '<span style="margin-right:8px">⏳</span> Redirecionando...';
+        this.style.opacity = '0.8';
+        this.style.pointerEvents = 'none';
+      });
+    }
+  </script>
+</body>
+</html>

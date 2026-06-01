@@ -106,6 +106,7 @@
           <th>Page ID</th>
           <th>URL do CRM</th>
           <th>Token</th>
+          <th>Link Onboarding</th>
           <th>Status</th>
           <th>Criado em</th>
           <th>Ações</th>
@@ -126,6 +127,16 @@
             {% else %}
               <span class="text-muted">—</span>
             {% endif %}
+          </td>
+          <td style="text-align: center;">
+            <button
+              class="btn btn-ghost btn-sm"
+              onclick="copyOnboardLink({{ m.id }}, this)"
+              title="Copiar link para enviar ao cliente"
+              style="white-space: nowrap;"
+            >
+              🔗 Copiar Link
+            </button>
           </td>
           <td>
             <span class="badge badge-{{ 'active' if m.active else 'inactive' }}">
@@ -240,6 +251,22 @@
     if (val) {
       document.getElementById('page-id-input').value = val;
     }
+  }
+
+  function copyOnboardLink(mappingId, btn) {
+    const link = `${window.location.origin}/onboard/${mappingId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      const original = btn.innerHTML;
+      btn.innerHTML = '✅ Copiado!';
+      btn.style.color = 'var(--green, #22c55e)';
+      setTimeout(() => {
+        btn.innerHTML = original;
+        btn.style.color = '';
+      }, 2000);
+    }).catch(() => {
+      // Fallback para navegadores sem clipboard API
+      prompt('Copie o link abaixo:', link);
+    });
   }
 </script>
 {% endblock %}

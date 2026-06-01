@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Selecione sua Página — Meta Leads Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a12;
+      --surface: #12121e;
+      --surface2: #1a1a2e;
+      --border: rgba(255,255,255,0.08);
+      --border-hover: rgba(124,106,247,0.5);
+      --text: #f0f0ff;
+      --text-muted: #8888aa;
+      --accent: #7c6af7;
+      --accent-glow: rgba(124,106,247,0.3);
+      --fb-blue: #1877f2;
+      --green: #22c55e;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      top: -200px; left: -200px;
+      width: 700px; height: 700px;
+      background: radial-gradient(circle, rgba(124,106,247,0.10) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .wrapper {
+      max-width: 580px;
+      width: 100%;
+      animation: fadeUp 0.5s ease forwards;
+      position: relative;
+      z-index: 1;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .header-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 36px 36px 28px;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .step-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(124,106,247,0.12);
+      border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 14px;
+      border-radius: 100px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .client-highlight {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* Grade de cards de páginas */
+    .pages-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      padding: 0 4px;
+      margin-bottom: 8px;
+    }
+
+    .pages-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .page-option {
+      cursor: pointer;
+    }
+    .page-option input[type="radio"] {
+      display: none;
+    }
+    .page-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .page-option:hover .page-card {
+      border-color: rgba(124,106,247,0.4);
+      background: var(--surface2);
+    }
+    .page-option input[type="radio"]:checked + .page-card {
+      border-color: var(--accent);
+      background: rgba(124,106,247,0.08);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .page-option input[type="radio"]:checked + .page-card::after {
+      content: '✓';
+      position: absolute;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 24px; height: 24px;
+      background: var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: white;
+      line-height: 24px;
+      text-align: center;
+    }
+
+    .page-avatar {
+      width: 46px; height: 46px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--fb-blue), #4267B2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+    .page-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .page-name {
+      font-size: 15px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .page-id {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: monospace;
+      margin-top: 2px;
+    }
+
+    .empty-pages {
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: 14px;
+      padding: 40px 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* Botão de submit */
+    .btn-connect {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 15px 24px;
+      background: linear-gradient(135deg, var(--accent), #5b4ce0);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 20px var(--accent-glow);
+      letter-spacing: -0.2px;
+      margin-top: 4px;
+    }
+    .btn-connect:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(124,106,247,0.5);
+    }
+    .btn-connect:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .footer { margin-top: 24px; font-size: 12px; color: var(--text-muted); opacity: 0.4; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="header-card">
+      <div class="step-badge">Passo 2 de 2 ✦</div>
+      <h1>Qual página deseja conectar?</h1>
+      <p class="subtitle">
+        Encontramos as Páginas do Facebook associadas à conta de
+        <span class="client-highlight">{{ client_name }}</span>.<br>
+        Selecione a Página que exibe os anúncios de Lead Ads.
+      </p>
+    </div>
+
+    <form method="post" action="/onboard/complete" id="select-form">
+      <input type="hidden" name="mapping_id" value="{{ mapping_id }}" />
+      <input type="hidden" name="user_access_token" value="{{ user_access_token }}" />
+
+      <p class="pages-label">Páginas disponíveis</p>
+
+      {% if pages %}
+      <div class="pages-grid">
+        {% for page in pages %}
+        <label class="page-option">
+          <input
+            type="radio"
+            name="page_id"
+            value="{{ page.id }}"
+            data-name="{{ page.name }}"
+            data-token="{{ page.access_token }}"
+            onchange="onPageSelect(this)"
+            required
+          />
+          <div class="page-card">
+            <div class="page-avatar">📘</div>
+            <div class="page-info">
+              <div class="page-name">{{ page.name }}</div>
+              <div class="page-id">ID: {{ page.id }}</div>
+            </div>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+
+      <!-- Campos ocultos preenchidos via JS ao selecionar -->
+      <input type="hidden" name="page_name" id="input-page-name" />
+      <input type="hidden" name="page_access_token" id="input-page-token" />
+
+      <button type="submit" class="btn-connect" id="btn-submit" disabled>
+        🔗 Conectar Página Selecionada
+      </button>
+
+      {% else %}
+      <div class="empty-pages">
+        😕 Não encontramos nenhuma Página do Facebook associada a esta conta.<br>
+        Certifique-se de que você é administrador de uma Página antes de prosseguir.
+      </div>
+      {% endif %}
+    </form>
+
+    <div class="footer">Powered by Meta Leads Hub &mdash; HeadOffice</div>
+  </div>
+
+  <script>
+    function onPageSelect(radio) {
+      document.getElementById('input-page-name').value = radio.dataset.name;
+      document.getElementById('input-page-token').value = radio.dataset.token;
+      document.getElementById('btn-submit').disabled = false;
+    }
+
+    // Feedback visual no submit
+    document.getElementById('select-form').addEventListener('submit', function() {
+      const btn = document.getElementById('btn-submit');
+      btn.innerHTML = '⏳ Conectando...';
+      btn.disabled = true;
+    });
+  </script>
+</body>
+</html>
