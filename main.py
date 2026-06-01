@@ -151,13 +151,30 @@ async def webhook_receive(request: Request, db: Database = Depends(get_db)):
             if not lead_gen_id:
                 continue
 
+            # Reconstruct clean, single-lead raw webhook event payload for perfect signature mirroring
+            single_lead_payload = {
+                "object": payload.get("object", "page"),
+                "entry": [
+                    {
+                        "id": page_id,
+                        "time": entry.get("time", int(datetime.utcnow().timestamp())),
+                        "changes": [
+                            {
+                                "field": "leadgen",
+                                "value": value
+                            }
+                        ]
+                    }
+                ]
+            }
+
             try:
                 services.process_lead_event(
                     db=db,
                     lead_gen_id=str(lead_gen_id),
                     form_id=str(form_id) if form_id else None,
                     page_id=str(page_id) if page_id else None,
-                    raw_payload=payload,
+                    raw_payload=single_lead_payload,
                 )
             except Exception as e:
                 logger.error(f"Error processing lead_gen_id={lead_gen_id}: {e}")
@@ -296,6 +313,7 @@ async def create_mapping(
     page_id: str = Form(""),
     crm_url: str = Form(...),
     crm_auth_token: str = Form(""),
+    crm_payload_type: str = Form("raw"),
 ):
     """Creates a new CRM instance mapping."""
     now = datetime.utcnow()
@@ -305,6 +323,7 @@ async def create_mapping(
         "page_id": page_id.strip() or None,
         "crm_url": crm_url.strip(),
         "crm_auth_token": crm_auth_token.strip() or None,
+        "crm_payload_type": crm_payload_type.strip(),
         "active": True,
         "created_at": now,
         "updated_at": now,

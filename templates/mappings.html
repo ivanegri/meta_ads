@@ -106,6 +106,7 @@
           <th>Page ID</th>
           <th>URL do CRM</th>
           <th>Token</th>
+          <th>Formato</th>
           <th>Link Onboarding</th>
           <th>Status</th>
           <th>Criado em</th>
@@ -126,6 +127,13 @@
               <span class="badge badge-active">✓ configurado</span>
             {% else %}
               <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if m.crm_payload_type == 'resolved' %}
+              <span class="badge" style="background:var(--accent); color:#fff; font-size:11px; padding: 4px 8px;">Enriquecido</span>
+            {% else %}
+              <span class="badge badge-ghost" style="font-size:11px; padding: 4px 8px; border: 1px solid var(--border-color);">Meta Raw</span>
             {% endif %}
           </td>
           <td style="text-align: center;">
@@ -221,6 +229,13 @@
       <div class="form-group">
         <label>Token de Autenticação <span class="text-muted">(opcional — Bearer Token)</span></label>
         <input type="text" name="crm_auth_token" placeholder="seu_token_secreto" id="crm-token-input" />
+      </div>
+      <div class="form-group">
+        <label>Formato de Envio ao CRM *</label>
+        <select name="crm_payload_type" style="width:100%; padding:10px; border-radius:6px; background:var(--bg-card); color:var(--text); border:1px solid var(--border-color);">
+          <option value="raw" selected>Formato Webhook Original (Meta Raw)</option>
+          <option value="resolved">Formato Resolvido e Enriquecido (Hub Custom)</option>
+        </select>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
