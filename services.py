@@ -44,7 +44,7 @@ def fetch_lead_details(lead_id: str, db: Database, page_id: Optional[str] = None
 
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{lead_id}"
     params = {
-        "fields": "id,created_time,field_data,form_id,ad_id,adset_id,campaign_id",
+        "fields": "id,created_time,field_data,form_id,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,platform",
         "access_token": access_token,
     }
 
@@ -113,8 +113,12 @@ def save_lead(db: Database, lead_data: dict, raw_payload: dict) -> Lead:
         "form_id": lead_data.get("form_id"),
         "page_id": lead_data.get("page_id"),
         "ad_id": lead_data.get("ad_id"),
+        "ad_name": lead_data.get("ad_name"),
         "adset_id": lead_data.get("adset_id"),
+        "adset_name": lead_data.get("adset_name"),
         "campaign_id": lead_data.get("campaign_id"),
+        "campaign_name": lead_data.get("campaign_name"),
+        "platform": lead_data.get("platform"),
         "fields_json": fields,  # Stored as a native Mongo dict
         "raw_payload": raw_payload,
         "status": "received",
@@ -153,8 +157,12 @@ def forward_lead(db: Database, lead: Lead, mapping: InstanceMapping) -> bool:
             "form_id": lead.form_id,
             "page_id": lead.page_id,
             "ad_id": lead.ad_id,
+            "ad_name": lead.ad_name,
             "adset_id": lead.adset_id,
+            "adset_name": lead.adset_name,
             "campaign_id": lead.campaign_id,
+            "campaign_name": lead.campaign_name,
+            "platform": lead.platform,
             "fields": lead.get_fields(),
             "received_at": lead.created_at.isoformat() if lead.created_at else None,
         }

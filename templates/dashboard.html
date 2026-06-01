@@ -353,8 +353,24 @@
             <span class="detail-value mono" id="detail-ad-id"></span>
           </div>
           <div class="detail-group">
+            <span class="detail-label">Nome do Anúncio</span>
+            <span class="detail-value" id="detail-ad-name"></span>
+          </div>
+          <div class="detail-group">
             <span class="detail-label">Campaign ID</span>
             <span class="detail-value mono" id="detail-campaign-id"></span>
+          </div>
+          <div class="detail-group">
+            <span class="detail-label">Nome da Campanha</span>
+            <span class="detail-value" id="detail-campaign-name"></span>
+          </div>
+          <div class="detail-group">
+            <span class="detail-label">Nome do Conjunto</span>
+            <span class="detail-value" id="detail-adset-name"></span>
+          </div>
+          <div class="detail-group">
+            <span class="detail-label">Plataforma</span>
+            <span class="detail-value" id="detail-platform"></span>
           </div>
         </div>
         
@@ -441,7 +457,11 @@
     document.getElementById('detail-form-id').innerText = 'Buscando...';
     document.getElementById('detail-page-id').innerText = 'Buscando...';
     document.getElementById('detail-ad-id').innerText = 'Buscando...';
+    document.getElementById('detail-ad-name').innerText = 'Buscando...';
     document.getElementById('detail-campaign-id').innerText = 'Buscando...';
+    document.getElementById('detail-campaign-name').innerText = 'Buscando...';
+    document.getElementById('detail-adset-name').innerText = 'Buscando...';
+    document.getElementById('detail-platform').innerText = 'Buscando...';
     document.getElementById('detail-status').className = 'badge';
     document.getElementById('detail-status').innerText = 'Carregando';
     document.getElementById('detail-forward-url').innerText = '';
@@ -473,7 +493,11 @@
       document.getElementById('detail-form-id').innerText = data.form_id || '—';
       document.getElementById('detail-page-id').innerText = data.page_id || '—';
       document.getElementById('detail-ad-id').innerText = data.ad_id || '—';
+      document.getElementById('detail-ad-name').innerText = data.ad_name || '—';
       document.getElementById('detail-campaign-id').innerText = data.campaign_id || '—';
+      document.getElementById('detail-campaign-name').innerText = data.campaign_name || '—';
+      document.getElementById('detail-adset-name').innerText = data.adset_name || '—';
+      document.getElementById('detail-platform').innerText = data.platform || '—';
       
       // Status
       const statusBadge = document.getElementById('detail-status');
