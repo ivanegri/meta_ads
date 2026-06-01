@@ -56,7 +56,7 @@ def build_callback_url(request: Request) -> str:
     Prioridade:
       1. Variável de ambiente PUBLIC_URL (garante HTTPS e domínio correto em produção).
       2. Cabeçalhos de proxy X-Forwarded-Proto e X-Forwarded-Host (para Ngrok/Proxies automaticamente).
-      3. URL detectada do request original (fallback final).
+      3. URL detectada do request original com HTTPS forçado para domínios públicos.
     """
     if PUBLIC_URL:
         return f"{PUBLIC_URL}/oauth/callback"
@@ -65,6 +65,10 @@ def build_callback_url(request: Request) -> str:
     scheme = request.headers.get("x-forwarded-proto", request.base_url.scheme)
     host = request.headers.get("x-forwarded-host", request.base_url.netloc)
     
+    # Se for um domínio público (não localhost/127.0.0.1), força HTTPS para evitar problemas de proxy
+    if "localhost" not in host and "127.0.0.1" not in host:
+        scheme = "https"
+        
     return f"{scheme}://{host}/oauth/callback"
 
 
