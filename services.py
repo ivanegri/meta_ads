@@ -2,6 +2,8 @@
 services.py — Business logic: fetch lead from Meta, map instance, and forward.
 Refactored to use MongoDB (pymongo) instead of SQLAlchemy.
 """
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -139,18 +141,41 @@ def forward_lead(db: Database, lead: Lead, mapping: InstanceMapping) -> bool:
     Sends the lead via HTTP POST to the client's CRM URL.
     Updates the lead status in MongoDB.
     """
-    payload = {
-        "lead_id": lead.lead_id,
-        "form_id": lead.form_id,
-        "page_id": lead.page_id,
-        "ad_id": lead.ad_id,
-        "adset_id": lead.adset_id,
-        "campaign_id": lead.campaign_id,
-        "fields": lead.get_fields(),
-        "received_at": lead.created_at.isoformat() if lead.created_at else None,
-    }
+    # Architecture support: Choose payload type based on crm_payload_type ('raw' or 'resolved')
+    crm_payload_type = getattr(mapping, "crm_payload_type", "raw")
+    
+    if crm_payload_type == "raw" and lead.raw_payload:
+        payload = lead.raw_payload
+        logger.info(f"Forwarding lead {lead.lead_id} in RAW Meta webhook format.")
+    else:
+        payload = {
+            "lead_id": lead.lead_id,
+            "form_id": lead.form_id,
+            "page_id": lead.page_id,
+            "ad_id": lead.ad_id,
+            "adset_id": lead.adset_id,
+            "campaign_id": lead.campaign_id,
+            "fields": lead.get_fields(),
+            "received_at": lead.created_at.isoformat() if lead.created_at else None,
+        }
+        logger.info(f"Forwarding lead {lead.lead_id} in RESOLVED custom JSON format.")
+
+    # Serialize body precisely to a compact JSON string to match signature byte-by-byte
+    payload_str = json.dumps(payload, separators=(',', ':'))
 
     headers = {"Content-Type": "application/json"}
+    
+    # Generate X-Hub-Signature-256 using META_APP_SECRET for security parity with Meta
+    meta_app_secret = os.getenv("META_APP_SECRET", "")
+    if meta_app_secret:
+        sig = hmac.new(
+            meta_app_secret.encode("utf-8"),
+            payload_str.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+        headers["X-Hub-Signature-256"] = f"sha256={sig}"
+        logger.debug("Added X-Hub-Signature-256 signature header.")
+
     if mapping.crm_auth_token:
         headers["Authorization"] = f"Bearer {mapping.crm_auth_token}"
 
@@ -158,7 +183,7 @@ def forward_lead(db: Database, lead: Lead, mapping: InstanceMapping) -> bool:
 
     try:
         with httpx.Client(timeout=20.0) as client:
-            response = client.post(mapping.crm_url, json=payload, headers=headers)
+            response = client.post(mapping.crm_url, content=payload_str, headers=headers)
             response.raise_for_status()
 
         db.leads.update_one(

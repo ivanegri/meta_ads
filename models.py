@@ -62,6 +62,7 @@ class InstanceMapping:
         self.client_name = doc.get("client_name", "")
         self.crm_url = doc.get("crm_url", "")
         self.crm_auth_token = doc.get("crm_auth_token")
+        self.crm_payload_type = doc.get("crm_payload_type", "raw")  # 'raw' (Approach A) or 'resolved' (Approach B)
         self.active = doc.get("active", True)
         self.created_at = doc.get("created_at", datetime.utcnow())
         self.updated_at = doc.get("updated_at", datetime.utcnow())
