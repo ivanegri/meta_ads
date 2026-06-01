@@ -45,6 +45,23 @@ META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "changeme")
 META_APP_SECRET = os.getenv("META_APP_SECRET", "")
 META_APP_ID = os.getenv("META_APP_ID", "")
 
+# URL pública do servidor (obrigatória quando o serviço fica atrás de proxy/ngrok)
+# Ex: PUBLIC_URL=https://leads.meudominio.com.br
+PUBLIC_URL = os.getenv("PUBLIC_URL", "").rstrip("/")
+
+
+def build_callback_url(request: Request) -> str:
+    """
+    Retorna a URI de callback completa para o OAuth da Meta.
+    Prioridade:
+      1. Variável de ambiente PUBLIC_URL (garante HTTPS e domínio correto em produção).
+      2. URL detectada automaticamente pelo request (funciona apenas em localhost/dev).
+    """
+    if PUBLIC_URL:
+        return f"{PUBLIC_URL}/oauth/callback"
+    # Fallback para desenvolvimento local
+    return f"{request.base_url.scheme}://{request.base_url.netloc}/oauth/callback"
+
 
 def _ensure_indexes(db: Database):
     """Creates MongoDB indexes on first startup for performance."""
@@ -251,7 +268,7 @@ async def list_mappings(request: Request, db: Database = Depends(get_db)):
     app_id = META_APP_ID
     redirect_uri = ""
     if app_id:
-        redirect_uri = f"{request.base_url.scheme}://{request.base_url.netloc}/oauth/callback"
+        redirect_uri = build_callback_url(request)
 
     return templates.TemplateResponse("mappings.html", {
         "request": request,
@@ -325,7 +342,7 @@ async def oauth_callback(
     - state present → client onboarding flow (renders page selector).
     - state absent  → admin flow (connects all pages, redirects to /mappings).
     """
-    redirect_uri = f"{request.base_url.scheme}://{request.base_url.netloc}/oauth/callback"
+    redirect_uri = build_callback_url(request)
 
     if error:
         logger.error(f"OAuth error from Meta: {error}")
@@ -410,7 +427,7 @@ async def onboard_landing(
         return HTMLResponse(content="<h2>Link inválido ou expirado.</h2>", status_code=404)
 
     app_id = META_APP_ID
-    redirect_uri = f"{request.base_url.scheme}://{request.base_url.netloc}/oauth/callback"
+    redirect_uri = build_callback_url(request)
 
     oauth_url = (
         f"https://www.facebook.com/v19.0/dialog/oauth"
