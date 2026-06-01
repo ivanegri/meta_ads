@@ -1,98 +1,89 @@
 """
-models.py — Modelos SQLAlchemy para o banco de dados local.
+models.py — Thin wrapper classes for MongoDB documents.
+
+Instead of SQLAlchemy ORM objects, these classes wrap plain MongoDB dicts
+so that all templates and endpoint code can access attributes normally
+(e.g. lead.lead_id, mapping.client_name) without any changes.
 """
 import json
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
-from database import Base
+from bson import ObjectId
 
 
-class Lead(Base):
-    """Armazena cada lead recebido da Meta com todos os seus dados."""
-    __tablename__ = "leads"
+def _str_id(doc: dict) -> str:
+    """Returns the MongoDB _id as a string."""
+    oid = doc.get("_id")
+    if isinstance(oid, ObjectId):
+        return str(oid)
+    return str(oid) if oid else ""
 
-    id = Column(Integer, primary_key=True, index=True)
 
-    # Identificadores da Meta
-    lead_id = Column(String(64), unique=True, index=True, nullable=False)
-    form_id = Column(String(64), index=True, nullable=True)
-    page_id = Column(String(64), index=True, nullable=True)
-    ad_id = Column(String(64), nullable=True)
-    adset_id = Column(String(64), nullable=True)
-    campaign_id = Column(String(64), nullable=True)
+class Lead:
+    """Wrapper around a MongoDB 'leads' document."""
 
-    # Dados do lead em JSON (campos customizados do formulário)
-    fields_json = Column(Text, nullable=True)  # JSON serializado
-
-    # Payload bruto completo enviado pela Meta
-    raw_payload = Column(Text, nullable=True)  # JSON serializado
-
-    # Controle de status e encaminhamento
-    status = Column(String(32), default="received")  # received | forwarded | failed | skipped
-    forwarded_to = Column(String(255), nullable=True)  # URL do CRM que recebeu
-    forward_response = Column(Text, nullable=True)  # Resposta HTTP do CRM
-    error_message = Column(Text, nullable=True)
-
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    def __init__(self, doc: dict):
+        self._doc = doc
+        self.id = _str_id(doc)
+        self.lead_id = doc.get("lead_id", "")
+        self.form_id = doc.get("form_id")
+        self.page_id = doc.get("page_id")
+        self.ad_id = doc.get("ad_id")
+        self.adset_id = doc.get("adset_id")
+        self.campaign_id = doc.get("campaign_id")
+        self.fields_json = doc.get("fields_json")
+        self.raw_payload = doc.get("raw_payload")
+        self.status = doc.get("status", "received")
+        self.forwarded_to = doc.get("forwarded_to")
+        self.forward_response = doc.get("forward_response")
+        self.error_message = doc.get("error_message")
+        self.created_at = doc.get("created_at", datetime.utcnow())
+        self.updated_at = doc.get("updated_at", datetime.utcnow())
 
     def get_fields(self) -> dict:
-        """Desserializa os campos do lead de JSON para dict."""
+        """Deserializes the lead's field_json into a dict."""
         if self.fields_json:
+            if isinstance(self.fields_json, dict):
+                return self.fields_json
             return json.loads(self.fields_json)
         return {}
 
     def __repr__(self):
-        return f"<Lead id={self.id} lead_id={self.lead_id} status={self.status}>"
+        return f"<Lead lead_id={self.lead_id} status={self.status}>"
 
 
-class InstanceMapping(Base):
-    """
-    Mapeamento de form_id ou page_id para a URL da instância de CRM do cliente.
-    Prioridade: form_id > page_id (mais específico vence).
-    """
-    __tablename__ = "instance_mappings"
+class InstanceMapping:
+    """Wrapper around a MongoDB 'instance_mappings' document."""
 
-    id = Column(Integer, primary_key=True, index=True)
-
-    # Identificador da Meta
-    form_id = Column(String(64), unique=True, index=True, nullable=True)
-    page_id = Column(String(64), index=True, nullable=True)
-
-    # Dados da instância do cliente
-    client_name = Column(String(255), nullable=False)
-    crm_url = Column(String(512), nullable=False)        # Ex: https://crm-cliente.com/api/leads
-    crm_auth_token = Column(String(512), nullable=True)  # Token Bearer opcional
-
-    active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    def __init__(self, doc: dict):
+        self._doc = doc
+        self.id = _str_id(doc)
+        self.form_id = doc.get("form_id")
+        self.page_id = doc.get("page_id")
+        self.client_name = doc.get("client_name", "")
+        self.crm_url = doc.get("crm_url", "")
+        self.crm_auth_token = doc.get("crm_auth_token")
+        self.active = doc.get("active", True)
+        self.created_at = doc.get("created_at", datetime.utcnow())
+        self.updated_at = doc.get("updated_at", datetime.utcnow())
 
     def __repr__(self):
         return f"<InstanceMapping client={self.client_name} form_id={self.form_id}>"
 
 
-class MetaConnection(Base):
-    """
-    Armazena os tokens de acesso de longa duração das páginas integradas
-    via fluxo de OAuth 2.0 (Facebook Login).
-    """
-    __tablename__ = "meta_connections"
+class MetaConnection:
+    """Wrapper around a MongoDB 'meta_connections' document."""
 
-    id = Column(Integer, primary_key=True, index=True)
-
-    # Identificadores da Página Meta
-    page_id = Column(String(64), unique=True, index=True, nullable=False)
-    page_name = Column(String(255), nullable=False)
-    page_access_token = Column(String(512), nullable=False)  # Page access token (no expiration)
-
-    # Token do Usuário que fez a conexão (opcional para rastreabilidade)
-    user_access_token = Column(String(512), nullable=True)   # User long-lived token
-    connected_by = Column(String(255), nullable=True)        # Nome do usuário / administrador que conectou
-
-    active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    def __init__(self, doc: dict):
+        self._doc = doc
+        self.id = _str_id(doc)
+        self.page_id = doc.get("page_id", "")
+        self.page_name = doc.get("page_name", "")
+        self.page_access_token = doc.get("page_access_token", "")
+        self.user_access_token = doc.get("user_access_token")
+        self.connected_by = doc.get("connected_by")
+        self.active = doc.get("active", True)
+        self.created_at = doc.get("created_at", datetime.utcnow())
+        self.updated_at = doc.get("updated_at", datetime.utcnow())
 
     def __repr__(self):
         return f"<MetaConnection page={self.page_name} id={self.page_id}>"

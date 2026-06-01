@@ -1,0 +1,47 @@
+
+services:
+  # ──────────────────────────────────────────────
+  # MongoDB — Banco de dados de leads e mapeamentos
+  # ──────────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: meta-leads-mongo
+    restart: unless-stopped
+    ports:
+      - "27018:27017"   # Porta customizada no host para não conflitar
+    volumes:
+      - mongo_data:/data/db  # Volume nomeado: dados persistem entre rebuilds
+    environment:
+      MONGO_INITDB_DATABASE: meta_leads_hub
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ──────────────────────────────────────────────
+  # Web — FastAPI Central de Leads
+  # ──────────────────────────────────────────────
+  web:
+    build: .
+    container_name: meta-leads-hub-instance
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Sobreescreve MONGO_URL para usar a rede interna do Docker Compose
+      MONGO_URL: mongodb://mongodb:27017/
+      MONGO_DB_NAME: meta_leads_hub
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+# ──────────────────────────────────────────────
+# Volume nomeado — persiste dados do MongoDB
+# mesmo após docker compose down && up --build
+# ──────────────────────────────────────────────
+volumes:
+  mongo_data:
+    driver: local
