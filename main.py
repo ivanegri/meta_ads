@@ -55,12 +55,17 @@ def build_callback_url(request: Request) -> str:
     Retorna a URI de callback completa para o OAuth da Meta.
     Prioridade:
       1. Variável de ambiente PUBLIC_URL (garante HTTPS e domínio correto em produção).
-      2. URL detectada automaticamente pelo request (funciona apenas em localhost/dev).
+      2. Cabeçalhos de proxy X-Forwarded-Proto e X-Forwarded-Host (para Ngrok/Proxies automaticamente).
+      3. URL detectada do request original (fallback final).
     """
     if PUBLIC_URL:
         return f"{PUBLIC_URL}/oauth/callback"
-    # Fallback para desenvolvimento local
-    return f"{request.base_url.scheme}://{request.base_url.netloc}/oauth/callback"
+    
+    # Detecção inteligente por trás de proxies (ex: Ngrok, Cloudflare, Nginx)
+    scheme = request.headers.get("x-forwarded-proto", request.base_url.scheme)
+    host = request.headers.get("x-forwarded-host", request.base_url.netloc)
+    
+    return f"{scheme}://{host}/oauth/callback"
 
 
 def _ensure_indexes(db: Database):
