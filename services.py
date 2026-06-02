@@ -293,8 +293,13 @@ def exchange_code_for_user_token(code: str, redirect_uri: str) -> Optional[str]:
     try:
         with httpx.Client(timeout=15.0) as client:
             resp = client.get(url, params=params)
-            resp.raise_for_status()
+            if not resp.is_success:
+                logger.error(f"Erro na troca de code por token (step 1). Status={resp.status_code} | Body={resp.text} | redirect_uri={redirect_uri}")
+                return None
             short_token = resp.json().get("access_token")
+            if not short_token:
+                logger.error(f"Token de curta duração ausente na resposta: {resp.json()}")
+                return None
 
             long_params = {
                 "grant_type": "fb_exchange_token",
@@ -303,11 +308,13 @@ def exchange_code_for_user_token(code: str, redirect_uri: str) -> Optional[str]:
                 "fb_exchange_token": short_token,
             }
             long_resp = client.get(url, params=long_params)
-            long_resp.raise_for_status()
+            if not long_resp.is_success:
+                logger.error(f"Erro na troca por token de longa duração (step 2). Status={long_resp.status_code} | Body={long_resp.text}")
+                return None
             return long_resp.json().get("access_token")
 
     except Exception as e:
-        logger.error(f"Error exchanging OAuth code for Meta token: {e}")
+        logger.error(f"Exceção ao trocar OAuth code por token da Meta: {e}")
         return None
 
 

@@ -362,6 +362,7 @@ async def oauth_callback(
     request: Request,
     code: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
+    error_description: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
     db: Database = Depends(get_db)
 ):
@@ -371,28 +372,41 @@ async def oauth_callback(
     - state absent  → admin flow (connects all pages, redirects to /mappings).
     """
     redirect_uri = build_callback_url(request)
+    logger.info(f"OAuth callback recebido. redirect_uri={redirect_uri} | state={'presente' if state else 'ausente'} | code={'presente' if code else 'ausente'} | error={error}")
 
     if error:
-        logger.error(f"OAuth error from Meta: {error}")
-        return templates.TemplateResponse("onboard_landing.html", {
-            "request": request,
-            "client_name": "cliente",
-            "app_id": None,
-            "oauth_url": "",
-            "error": error
-        }, status_code=400)
+        error_msg = f"{error}: {error_description}" if error_description else error
+        logger.error(f"Erro OAuth da Meta: {error_msg}")
+        return HTMLResponse(
+            content=f"""
+            <h2>Erro de autorização da Meta</h2>
+            <p><strong>Erro:</strong> {error_msg}</p>
+            <p><a href='/mappings'>Voltar para Mapeamentos</a></p>
+            """,
+            status_code=400
+        )
 
     if not code:
         raise HTTPException(status_code=400, detail="Código de autorização ausente.")
 
     user_token = services.exchange_code_for_user_token(code, redirect_uri)
     if not user_token:
+        logger.error(f"Falha ao trocar o code pelo token. redirect_uri utilizado: {redirect_uri}")
         return HTMLResponse(
-            content="<h2>Erro</h2><p>Não foi possível obter o token de acesso.</p>",
+            content=f"""
+            <h2>Erro: Falha ao obter token de acesso</h2>
+            <p>A troca do código de autorização falhou. O motivo mais comum é um <strong>redirect_uri incompatível</strong>.</p>
+            <p><strong>redirect_uri utilizado nesta chamada:</strong><br>
+            <code style='background:#eee;padding:4px 8px;border-radius:4px;'>{redirect_uri}</code></p>
+            <p>Verifique se esse endereço está cadastrado exatamente igual nas <strong>Configurações do App Meta → Produtos → Facebook Login → URIs de redirecionamento OAuth válidos</strong>.</p>
+            <p>Se estiver rodando atrás de um proxy/ngrok, configure a variável de ambiente <code>PUBLIC_URL</code> no seu <code>.env</code>.</p>
+            <p><a href='/mappings'>Voltar para Mapeamentos</a></p>
+            """,
             status_code=400
         )
 
     pages = services.fetch_user_pages(user_token)
+    logger.info(f"OAuth: {len(pages)} página(s) retornada(s) pela Meta para este usuário.")
 
     # ── CLIENT FLOW: state present ──
     if state:
@@ -408,14 +422,35 @@ async def oauth_callback(
         })
 
     # ── ADMIN FLOW: connect all pages automatically ──
+    if not pages:
+        logger.warning("OAuth admin: nenhuma página retornada pela Meta. Verifique se o usuário é administrador de alguma Página do Facebook.")
+        return HTMLResponse(
+            content="""
+            <h2>Nenhuma página encontrada</h2>
+            <p>A autenticação foi bem-sucedida, mas a Meta não retornou nenhuma Página do Facebook para este usuário.</p>
+            <p>Possíveis causas:</p>
+            <ul>
+                <li>O usuário autenticado não é administrador de nenhuma Página do Facebook.</li>
+                <li>A permissão <strong>pages_show_list</strong> não foi concedida ou não está aprovada no App.</li>
+                <li>O App está em modo de desenvolvimento e o usuário não é um testador cadastrado.</li>
+            </ul>
+            <p><a href='/mappings'>Voltar para Mapeamentos</a></p>
+            """,
+            status_code=200
+        )
+
     connected_count = 0
+    failed_pages = []
     now = datetime.utcnow()
     for page in pages:
         page_id = page["id"]
         page_name = page["name"]
         page_token = page["access_token"]
 
-        services.subscribe_page_to_app(page_id, page_token)
+        subscribed = services.subscribe_page_to_app(page_id, page_token)
+        if not subscribed:
+            logger.warning(f"Falha ao inscrever webhook para página {page_name} ({page_id}).")
+            failed_pages.append(page_name)
 
         db.meta_connections.update_one(
             {"page_id": page_id},
@@ -431,6 +466,7 @@ async def oauth_callback(
             upsert=True
         )
         connected_count += 1
+        logger.info(f"Página conectada: {page_name} ({page_id}) | webhook_ok={not page_name in failed_pages}")
 
     return RedirectResponse(url=f"/mappings?oauth_success={connected_count}", status_code=303)
 
