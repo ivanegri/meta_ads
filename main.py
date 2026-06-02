@@ -461,7 +461,7 @@ async def onboard_landing(
         f"https://www.facebook.com/v19.0/dialog/oauth"
         f"?client_id={app_id}"
         f"&redirect_uri={redirect_uri}"
-        f"&scope=pages_show_list,pages_read_engagement,pages_manage_ads,leads_retrieval"
+        f"&scope=pages_show_list,pages_read_engagement,pages_manage_metadata,pages_manage_ads,leads_retrieval,business_management,ads_read"
         f"&state={mapping_id}"
     ) if app_id else ""
 
