@@ -462,6 +462,8 @@ async def onboard_landing(
         f"?client_id={app_id}"
         f"&redirect_uri={redirect_uri}"
         f"&scope=pages_show_list,pages_read_engagement,pages_manage_metadata,pages_manage_ads,leads_retrieval,business_management,ads_read"
+        f"&response_type=code"
+        f"&auth_type=rerequest"
         f"&state={mapping_id}"
     ) if app_id else ""
 
