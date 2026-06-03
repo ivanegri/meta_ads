@@ -374,6 +374,22 @@ async def oauth_callback(
     redirect_uri = build_callback_url(request)
     logger.info(f"OAuth callback recebido. redirect_uri={redirect_uri} | state={'presente' if state else 'ausente'} | code={'presente' if code else 'ausente'} | error={error}")
 
+    # Validar state se presente
+    mapping_doc = None
+    if state:
+        try:
+            mapping_doc = db.instance_mappings.find_one({"_id": ObjectId(state)})
+        except Exception:
+            mapping_doc = None
+        if not mapping_doc:
+            return HTMLResponse(
+                content="<h2>Erro: Mapeamento não encontrado ou link de onboarding inválido.</h2>",
+                status_code=404
+            )
+
+    back_url = f"/onboard/{state}" if state else "/mappings"
+    back_label = "Voltar para Integração" if state else "Voltar para Mapeamentos"
+
     if error:
         error_msg = f"{error}: {error_description}" if error_description else error
         logger.error(f"Erro OAuth da Meta: {error_msg}")
@@ -381,7 +397,7 @@ async def oauth_callback(
             content=f"""
             <h2>Erro de autorização da Meta</h2>
             <p><strong>Erro:</strong> {error_msg}</p>
-            <p><a href='/mappings'>Voltar para Mapeamentos</a></p>
+            <p><a href='{back_url}'>{back_label}</a></p>
             """,
             status_code=400
         )
@@ -400,7 +416,7 @@ async def oauth_callback(
             <code style='background:#eee;padding:4px 8px;border-radius:4px;'>{redirect_uri}</code></p>
             <p>Verifique se esse endereço está cadastrado exatamente igual nas <strong>Configurações do App Meta → Produtos → Facebook Login → URIs de redirecionamento OAuth válidos</strong>.</p>
             <p>Se estiver rodando atrás de um proxy/ngrok, configure a variável de ambiente <code>PUBLIC_URL</code> no seu <code>.env</code>.</p>
-            <p><a href='/mappings'>Voltar para Mapeamentos</a></p>
+            <p><a href='{back_url}'>{back_label}</a></p>
             """,
             status_code=400
         )
@@ -410,8 +426,7 @@ async def oauth_callback(
 
     # ── CLIENT FLOW: state present ──
     if state:
-        mapping_doc = db.instance_mappings.find_one({"_id": ObjectId(state)})
-        client_name = mapping_doc.get("client_name", "seu cliente") if mapping_doc else "seu cliente"
+        client_name = mapping_doc.get("client_name", "seu cliente")
 
         return templates.TemplateResponse("select_page.html", {
             "request": request,
