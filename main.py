@@ -2,6 +2,7 @@
 main.py — FastAPI application: Meta webhook + admin dashboard.
 Refactored to use MongoDB (pymongo) instead of SQLAlchemy.
 """
+import asyncio
 import hashlib
 import hmac
 import json
@@ -87,7 +88,35 @@ def _ensure_indexes(db: Database):
 async def startup_event():
     db = get_database()
     _ensure_indexes(db)
+    # Also ensure index on review_logs for fast last-record lookup
+    db.review_logs.create_index("started_at", background=True)
     logger.info("MongoDB indexes ensured.")
+    # Start the background lead review scheduler (every 6 hours)
+    asyncio.create_task(schedule_lead_reviews())
+
+
+async def schedule_lead_reviews():
+    """
+    Background coroutine that runs the lead review job every 6 hours.
+    Wrapped in a try/except so any failure never crashes the main server.
+    """
+    INTERVAL_SECONDS = 6 * 60 * 60  # 6 hours
+    # Small initial delay to let the server fully start
+    await asyncio.sleep(30)
+    while True:
+        try:
+            logger.info("[LeadReview] Background scheduler triggered.")
+            db = get_database()
+            results = await asyncio.to_thread(
+                services.review_and_recover_leads,
+                db,
+                6,
+                "auto",
+            )
+            logger.info(f"[LeadReview] Scheduler done: {results}")
+        except Exception as e:
+            logger.error(f"[LeadReview] Scheduler error (non-fatal): {e}")
+        await asyncio.sleep(INTERVAL_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +267,30 @@ async def dashboard_leads(
         "received": db.leads.count_documents({"status": "received"}),
     }
 
+    # Fetch last review log for status bar display
+    last_review_doc = db.review_logs.find_one(sort=[("started_at", -1)])
+    last_review = None
+    if last_review_doc:
+        last_review = {
+            "started_at": last_review_doc.get("started_at"),
+            "trigger": last_review_doc.get("trigger", "auto"),
+            "recovered_leads": last_review_doc.get("recovered_leads", 0),
+            "skipped_duplicates": last_review_doc.get("skipped_duplicates", 0),
+            "errors": last_review_doc.get("errors", 0),
+            "status": last_review_doc.get("status", "ok"),
+        }
+
+    # Read one-time review result from query params (after manual trigger redirect)
+    review_result = None
+    recovered_param = request.query_params.get("review_recovered")
+    if recovered_param is not None:
+        review_result = {
+            "recovered_leads": int(recovered_param),
+            "skipped_duplicates": int(request.query_params.get("review_duplicates", 0)),
+            "leads_found_in_meta": int(request.query_params.get("review_found", 0)),
+            "errors": int(request.query_params.get("review_errors", 0)),
+        }
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "leads": leads_display,
@@ -248,6 +301,8 @@ async def dashboard_leads(
         "status_filter": status,
         "search": search,
         "total_pages": max(1, (total + per_page - 1) // per_page),
+        "last_review": last_review,
+        "review_result": review_result,
     })
 
 
@@ -273,6 +328,35 @@ async def retry_lead(lead_id: str, db: Database = Depends(get_db)):
         raw_payload=raw_payload,
     )
     return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/admin/review-leads", tags=["Dashboard"])
+async def manual_review_leads(
+    db: Database = Depends(get_db),
+    hours: int = Form(24),
+):
+    """
+    Manually triggers the lead review & recovery job from the dashboard.
+    Redirects back to / with the result summary as query parameters.
+    """
+    try:
+        results = await asyncio.to_thread(
+            services.review_and_recover_leads,
+            db,
+            hours,
+            "manual",
+        )
+    except Exception as e:
+        logger.error(f"Manual review error: {e}")
+        results = {"recovered_leads": 0, "skipped_duplicates": 0, "leads_found_in_meta": 0, "errors": 1}
+
+    redirect_url = (
+        f"/?review_recovered={results.get('recovered_leads', 0)}"
+        f"&review_duplicates={results.get('skipped_duplicates', 0)}"
+        f"&review_found={results.get('leads_found_in_meta', 0)}"
+        f"&review_errors={results.get('errors', 0)}"
+    )
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,8 @@ import hmac
 import json
 import logging
 import os
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
@@ -348,3 +349,251 @@ def subscribe_page_to_app(page_id: str, page_token: str) -> bool:
     except Exception as e:
         logger.error(f"Error subscribing page {page_id} to webhook: {e}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# 7. Lead Review & Recovery (anti-missed-webhook safety net)
+# ---------------------------------------------------------------------------
+
+def build_simulated_raw_payload(lead_data: dict, page_id: str) -> dict:
+    """
+    Builds a raw webhook-format payload from a lead fetched directly via Graph API.
+    This ensures the CRM forwarding logic (including X-Hub-Signature-256) works
+    identically to a live webhook call.
+    """
+    return {
+        "object": "page",
+        "entry": [
+            {
+                "id": page_id,
+                "time": int(time.time()),
+                "changes": [
+                    {
+                        "field": "leadgen",
+                        "value": {
+                            "leadgen_id": lead_data.get("id"),
+                            "form_id": lead_data.get("form_id"),
+                            "page_id": page_id,
+                            "created_time": int(
+                                datetime.fromisoformat(
+                                    lead_data["created_time"].replace("Z", "+00:00")
+                                ).timestamp()
+                            ) if lead_data.get("created_time") else int(time.time()),
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+
+
+def fetch_forms_for_page(page_id: str, access_token: str) -> list[dict]:
+    """
+    Fetches all active lead-gen forms associated with a Facebook page.
+    Returns a list of dicts: [{"id": "...", "name": "..."}, ...]
+    """
+    url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{page_id}/leadgen_forms"
+    params = {
+        "fields": "id,name,status",
+        "access_token": access_token,
+        "limit": 100,
+    }
+    forms = []
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            while url:
+                resp = client.get(url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                forms.extend(data.get("data", []))
+                # Handle pagination
+                paging = data.get("paging", {})
+                url = paging.get("next")
+                params = {}  # next URL already contains all query params
+    except Exception as e:
+        logger.error(f"Error fetching forms for page {page_id}: {e}")
+    return forms
+
+
+def review_and_recover_leads(
+    db: Database,
+    hours: int = 6,
+    trigger: str = "auto",
+) -> dict:
+    """
+    Safety-net job that polls Meta's Graph API to find leads that may have been
+    missed by the real-time webhook (network blips, server downtime, etc.).
+
+    For each active MetaConnection:
+      1. Lists all lead-gen forms for the page.
+      2. Fetches leads created in the last `hours` hours.
+      3. Skips leads already in MongoDB (dedup by lead_id).
+      4. For new leads: saves + forwards using the EXACT same pipeline as webhook.
+
+    Results are written to the `review_logs` collection for audit and dashboard display.
+
+    Args:
+        db:      MongoDB database instance.
+        hours:   How many hours back to search (default 6).
+        trigger: Who triggered this run ("auto", "manual", "cli").
+
+    Returns:
+        dict with keys: leads_found_in_meta, recovered_leads, skipped_duplicates, errors.
+    """
+    started_at = datetime.utcnow()
+    logger.info(f"[LeadReview] Starting review job. trigger={trigger} window={hours}h")
+
+    # Time window: leads created after this timestamp
+    since_ts = int((datetime.utcnow() - timedelta(hours=hours)).timestamp())
+
+    leads_found = 0
+    recovered = 0
+    duplicates = 0
+    errors = 0
+
+    # Fetch all active connections (pages with OAuth tokens)
+    connections = list(db.meta_connections.find({"active": True}))
+    if not connections:
+        logger.warning("[LeadReview] No active MetaConnections found. Nothing to review.")
+        _save_review_log(db, started_at, trigger, hours, 0, 0, 0, 0, "no_connections")
+        return {
+            "leads_found_in_meta": 0,
+            "recovered_leads": 0,
+            "skipped_duplicates": 0,
+            "errors": 0,
+            "note": "No active Meta connections configured.",
+        }
+
+    for conn_doc in connections:
+        page_id = conn_doc.get("page_id")
+        page_name = conn_doc.get("page_name", page_id)
+        access_token = conn_doc.get("page_access_token", META_ACCESS_TOKEN)
+
+        if not access_token:
+            logger.warning(f"[LeadReview] No token for page {page_name}. Skipping.")
+            errors += 1
+            continue
+
+        logger.info(f"[LeadReview] Checking page: {page_name} ({page_id})")
+
+        forms = fetch_forms_for_page(page_id, access_token)
+        if not forms:
+            logger.info(f"[LeadReview] No forms found for page {page_name}.")
+            continue
+
+        for form in forms:
+            form_id = form.get("id")
+            form_name = form.get("name", form_id)
+
+            # Fetch leads for this form created after the time window
+            graph_url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{form_id}/leads"
+            params = {
+                "fields": "id,created_time,field_data,form_id,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,platform",
+                "access_token": access_token,
+                "filtering": json.dumps([{"field": "time_created", "operator": "GREATER_THAN", "value": since_ts}]),
+                "limit": 100,
+            }
+
+            try:
+                with httpx.Client(timeout=20.0) as client:
+                    next_url: Optional[str] = graph_url
+                    next_params = params
+
+                    while next_url:
+                        resp = client.get(next_url, params=next_params)
+                        resp.raise_for_status()
+                        page_data = resp.json()
+
+                        for lead_data in page_data.get("data", []):
+                            leads_found += 1
+                            lead_id = lead_data.get("id")
+
+                            # ── Deduplication: skip if already in DB ──
+                            existing = db.leads.find_one({"lead_id": lead_id})
+                            if existing:
+                                duplicates += 1
+                                logger.debug(f"[LeadReview] Lead {lead_id} already in DB. Skipping.")
+                                continue
+
+                            # ── New lead found! Inject page_id and process. ──
+                            lead_data["page_id"] = page_id
+                            if not lead_data.get("form_id"):
+                                lead_data["form_id"] = form_id
+
+                            raw_payload = build_simulated_raw_payload(lead_data, page_id)
+
+                            try:
+                                process_lead_event(
+                                    db=db,
+                                    lead_gen_id=lead_id,
+                                    form_id=lead_data.get("form_id", form_id),
+                                    page_id=page_id,
+                                    raw_payload=raw_payload,
+                                )
+                                recovered += 1
+                                logger.info(
+                                    f"[LeadReview] ✅ Recovered lead {lead_id} from form '{form_name}'"
+                                )
+                            except Exception as e:
+                                errors += 1
+                                logger.error(
+                                    f"[LeadReview] Error processing recovered lead {lead_id}: {e}"
+                                )
+
+                        # Pagination
+                        paging = page_data.get("paging", {})
+                        next_url = paging.get("next")
+                        next_params = {}  # next URL already contains all params
+
+            except Exception as e:
+                errors += 1
+                logger.error(f"[LeadReview] Error fetching leads for form {form_id}: {e}")
+
+    finished_at = datetime.utcnow()
+    duration_s = (finished_at - started_at).total_seconds()
+
+    logger.info(
+        f"[LeadReview] Finished. found={leads_found} recovered={recovered} "
+        f"duplicates={duplicates} errors={errors} duration={duration_s:.1f}s"
+    )
+
+    _save_review_log(
+        db, started_at, trigger, hours,
+        leads_found, recovered, duplicates, errors, "ok"
+    )
+
+    return {
+        "leads_found_in_meta": leads_found,
+        "recovered_leads": recovered,
+        "skipped_duplicates": duplicates,
+        "errors": errors,
+        "duration_seconds": duration_s,
+    }
+
+
+def _save_review_log(
+    db: Database,
+    started_at: datetime,
+    trigger: str,
+    hours: int,
+    leads_found: int,
+    recovered: int,
+    duplicates: int,
+    errors: int,
+    status: str,
+):
+    """Persists a review execution record into the review_logs collection."""
+    try:
+        db.review_logs.insert_one({
+            "started_at": started_at,
+            "finished_at": datetime.utcnow(),
+            "trigger": trigger,          # 'auto', 'manual', 'cli'
+            "window_hours": hours,
+            "leads_found_in_meta": leads_found,
+            "recovered_leads": recovered,
+            "skipped_duplicates": duplicates,
+            "errors": errors,
+            "status": status,
+        })
+    except Exception as e:
+        logger.error(f"[LeadReview] Failed to save review log: {e}")

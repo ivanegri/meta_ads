@@ -76,6 +76,61 @@
     from { opacity: 0; }
     to { opacity: 1; }
   }
+  /* ── Lead Review Feature styles ── */
+  .btn-review {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s;
+    white-space: nowrap;
+  }
+  .btn-review:hover {
+    opacity: 0.88;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 18px rgba(79,127,255,0.35);
+  }
+  .btn-review:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .review-banner {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    animation: slideDown 0.3s ease;
+  }
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .review-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
+    margin-bottom: 20px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .review-status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-ok   { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.6); }
+  .dot-warn { background: var(--yellow); box-shadow: 0 0 6px rgba(245,158,11,0.6); }
   .lead-details-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -166,10 +221,72 @@
   }
 </style>
 
-<div class="page-header">
-  <h1>📊 Dashboard de Leads</h1>
-  <p>Todos os leads recebidos da Meta em tempo real.</p>
+<div class="page-header" style="display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+  <div>
+    <h1>📊 Dashboard de Leads</h1>
+    <p>Todos os leads recebidos da Meta em tempo real.</p>
+  </div>
+  <!-- Manual Review Trigger -->
+  <form method="post" action="/admin/review-leads" id="review-form">
+    <input type="hidden" name="hours" value="24" />
+    <button type="submit" class="btn btn-review" id="btn-review-leads" onclick="startReviewAnimation()">
+      🔄 <span id="review-btn-text">Revisar Leads Recentes</span>
+    </button>
+  </form>
 </div>
+
+{% if review_result is not none %}
+<!-- Result banner after manual review -->
+<div class="review-banner"
+     style="{% if review_result.recovered_leads > 0 %}border-color: var(--green);{% elif review_result.errors > 0 %}border-color: var(--red);{% endif %}">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span style="font-size:22px;">
+      {% if review_result.recovered_leads > 0 %}✅
+      {% elif review_result.errors > 0 %}⚠️
+      {% else %}✓{% endif %}
+    </span>
+    <div>
+      <strong>
+        {% if review_result.recovered_leads > 0 %}
+          {{ review_result.recovered_leads }} lead(s) recuperado(s) da Meta!
+        {% elif review_result.errors > 0 %}
+          Revisão concluída com {{ review_result.errors }} erro(s). Verifique os logs.
+        {% else %}
+          Nenhum lead perdido encontrado — tudo sincronizado!
+        {% endif %}
+      </strong>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+        {{ review_result.leads_found_in_meta }} encontrado(s) na Meta &nbsp;·&nbsp;
+        {{ review_result.skipped_duplicates }} duplicata(s) ignorada(s) &nbsp;·&nbsp;
+        {{ review_result.errors }} erro(s)
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if last_review %}
+<!-- Last review status bar -->
+<div class="review-status-bar">
+  <span class="review-status-dot {% if last_review.errors > 0 %}dot-warn{% else %}dot-ok{% endif %}"></span>
+  <span>
+    <strong>Última verificação automática:</strong>
+    {{ last_review.started_at.strftime('%d/%m/%Y %H:%M') if last_review.started_at else '—' }} UTC
+    &nbsp;·&nbsp;
+    {% if last_review.trigger == 'manual' %}Manual{% elif last_review.trigger == 'cli' %}CLI{% else %}Automática{% endif %}
+    &nbsp;·&nbsp;
+    {% if last_review.recovered_leads > 0 %}
+      <strong style="color:var(--green)">{{ last_review.recovered_leads }} recuperado(s)</strong>
+    {% else %}
+      0 recuperados
+    {% endif %}
+    &nbsp;·&nbsp; {{ last_review.skipped_duplicates }} duplicata(s)
+    {% if last_review.errors > 0 %}
+      &nbsp;·&nbsp; <strong style="color:var(--red)">{{ last_review.errors }} erro(s)</strong>
+    {% endif %}
+  </span>
+</div>
+{% endif %}
 
 <!-- Stats -->
 <div class="stats-grid">
@@ -432,6 +549,15 @@
 
 {% block scripts %}
 <script>
+  function startReviewAnimation() {
+    const btn = document.getElementById('btn-review-leads');
+    const txt = document.getElementById('review-btn-text');
+    if (btn) {
+      btn.disabled = true;
+      txt.textContent = 'Verificando...';
+    }
+  }
+
   function switchTab(tabId) {
     // Esconder todas as abas
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
