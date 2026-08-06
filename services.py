@@ -195,6 +195,9 @@ def fetch_adset_details(adset_id: str, db: Database, page_id: Optional[str] = No
 def fetch_campaign_details(campaign_id: str, db: Database, page_id: Optional[str] = None) -> Optional[dict]:
     """
     Fetches campaign details (name, status, objective, budget) from Graph API and upserts into 'campaigns'.
+    NOTE: Page Access Tokens cannot read campaign objects directly — only Ad Account tokens can.
+    When the endpoint returns 400, we store a minimal stub with just the campaign_id so that
+    insights (which work fine) can still be linked to it.
     """
     if not campaign_id:
         return None
@@ -209,13 +212,39 @@ def fetch_campaign_details(campaign_id: str, db: Database, page_id: Optional[str
         "access_token": access_token,
     }
 
+    now = datetime.utcnow()
     try:
         with httpx.Client(timeout=15.0) as client:
             resp = client.get(url, params=params)
+
+            # Page tokens cannot access campaign objects (400). Store a minimal stub
+            # so the insights can still be linked, without polluting logs with errors.
+            if resp.status_code == 400:
+                logger.debug(
+                    f"Campaign {campaign_id} returned 400 (page token lacks campaign scope). "
+                    "Storing minimal stub."
+                )
+                stub = {
+                    "campaign_id": str(campaign_id),
+                    "campaign_name": None,
+                    "status": "UNKNOWN",
+                    "effective_status": None,
+                    "objective": None,
+                    "daily_budget": None,
+                    "lifetime_budget": None,
+                    "buying_type": None,
+                    "updated_at": now,
+                }
+                db.campaigns.update_one(
+                    {"campaign_id": str(campaign_id)},
+                    {"$setOnInsert": {**stub, "created_at": now}},
+                    upsert=True
+                )
+                return None  # Signals caller that no real data was retrieved
+
             resp.raise_for_status()
             data = resp.json()
 
-            now = datetime.utcnow()
             doc = {
                 "campaign_id": str(data.get("id", campaign_id)),
                 "campaign_name": data.get("name"),
@@ -235,9 +264,13 @@ def fetch_campaign_details(campaign_id: str, db: Database, page_id: Optional[str
             )
             logger.info(f"Campaign details cached for campaign_id={campaign_id}")
             return doc
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Error fetching campaign details for campaign_id={campaign_id}: {e}")
+        return None
     except Exception as e:
         logger.error(f"Error fetching campaign details for campaign_id={campaign_id}: {e}")
         return None
+
 
 
 def fetch_object_insights(

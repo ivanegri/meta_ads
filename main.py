@@ -824,9 +824,41 @@ async def dashboard_ads(
         insight = models.AdInsight(insight_doc) if insight_doc else None
         leads_count = db.leads.count_documents({"ad_id": ad.ad_id})
 
+        # Serialize to plain JSON-serializable dicts so Jinja2 tojson filter works
+        ad_dict = {
+            "ad_id": ad.ad_id,
+            "ad_name": ad.ad_name,
+            "status": ad.status,
+            "effective_status": ad.effective_status,
+            "adset_id": ad.adset_id,
+            "campaign_id": ad.campaign_id,
+            "creative_id": ad.creative_id,
+            "creative_title": ad.creative_title,
+            "creative_body": ad.creative_body,
+            "creative_image_url": ad.creative_image_url,
+            "creative_thumbnail_url": ad.creative_thumbnail_url,
+            "call_to_action": ad.call_to_action,
+        }
+        insight_dict = None
+        if insight:
+            insight_dict = {
+                "object_id": insight.object_id,
+                "spend": insight.spend,
+                "impressions": insight.impressions,
+                "clicks": insight.clicks,
+                "reach": insight.reach,
+                "frequency": insight.frequency,
+                "cpc": insight.cpc,
+                "cpm": insight.cpm,
+                "ctr": insight.ctr,
+                "conversions": insight.conversions,
+                "date_start": insight.date_start,
+                "date_stop": insight.date_stop,
+            }
+
         ads_display.append({
-            "ad": ad,
-            "insight": insight,
+            "ad": ad_dict,
+            "insight": insight_dict,
             "leads_count": leads_count,
         })
 
