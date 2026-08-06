@@ -106,6 +106,9 @@ class AdDetail:
         self.effective_status = doc.get("effective_status", "")
         self.adset_id = doc.get("adset_id", "")
         self.campaign_id = doc.get("campaign_id", "")
+        self.start_time = doc.get("start_time")          # ISO-8601 string from Meta e.g. "2024-01-15T10:00:00+0000"
+        self.stop_time = doc.get("stop_time")            # None = open-ended / no end date
+        self.meta_created_time = doc.get("meta_created_time")
         self.creative_id = doc.get("creative_id")
         self.creative_title = doc.get("creative_title")
         self.creative_body = doc.get("creative_body")
@@ -118,6 +121,7 @@ class AdDetail:
 
     def __repr__(self):
         return f"<AdDetail ad_id={self.ad_id} name={self.ad_name}>"
+
 
 
 class AdSetDetail:

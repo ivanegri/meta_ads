@@ -103,7 +103,7 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
 
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{ad_id}"
     params = {
-        "fields": "id,name,status,effective_status,adset_id,campaign_id,creative{id,name,title,body,image_url,thumbnail_url,call_to_action_type}",
+        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url,call_to_action_type}",
         "access_token": access_token,
     }
 
@@ -122,6 +122,9 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
                 "effective_status": data.get("effective_status"),
                 "adset_id": str(data.get("adset_id")) if data.get("adset_id") else None,
                 "campaign_id": str(data.get("campaign_id")) if data.get("campaign_id") else None,
+                "start_time": data.get("start_time"),       # ISO-8601 string from Meta
+                "stop_time": data.get("stop_time"),         # None when open-ended
+                "meta_created_time": data.get("created_time"),
                 "creative_id": str(creative.get("id")) if creative.get("id") else None,
                 "creative_title": creative.get("title") or creative.get("name"),
                 "creative_body": creative.get("body"),

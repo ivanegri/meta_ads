@@ -797,6 +797,7 @@ async def dashboard_ads(
     page: int = Query(1, ge=1),
     search: str = Query(""),
     page_filter: str = Query(""),
+    status_filter: str = Query(""),
 ):
     """Dashboard page for listing ads grouped by Page (client/business)."""
     per_page = 20
@@ -809,6 +810,11 @@ async def dashboard_ads(
         ]
     if page_filter:
         query_filter["page_id"] = page_filter
+    if status_filter:
+        query_filter["$or"] = [
+            {"status": status_filter},
+            {"effective_status": status_filter},
+        ]
 
     # Build a lookup map: page_id -> page_name (from meta_connections)
     page_name_map: dict[str, str] = {}
@@ -845,6 +851,9 @@ async def dashboard_ads(
             "effective_status": ad.effective_status,
             "adset_id": ad.adset_id,
             "campaign_id": ad.campaign_id,
+            "start_time": ad.start_time,
+            "stop_time": ad.stop_time,
+            "meta_created_time": ad.meta_created_time,
             "creative_id": ad.creative_id,
             "creative_title": ad.creative_title,
             "creative_body": ad.creative_body,
@@ -909,6 +918,7 @@ async def dashboard_ads(
         "ads_by_page": list(groups.values()),
         "all_pages": all_pages,
         "page_filter": page_filter,
+        "status_filter": status_filter,
         "page": page,
         "total": total,
         "per_page": per_page,

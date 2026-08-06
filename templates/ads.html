@@ -29,51 +29,22 @@
     border-bottom-right-radius: 0;
     border-color: var(--accent);
   }
-
-  .page-group-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
+  .page-group-title { display: flex; align-items: center; gap: 10px; }
   .page-group-title .page-icon {
     width: 34px; height: 34px; border-radius: 8px;
     background: linear-gradient(135deg, var(--accent), var(--accent2));
     display: flex; align-items: center; justify-content: center;
     font-size: 16px; flex-shrink: 0;
   }
-  .page-group-title h2 {
-    font-size: 15px;
-    font-weight: 700;
-    margin: 0;
-  }
-  .page-group-title .page-id-label {
-    font-size: 10px;
-    color: var(--text-muted);
-    font-family: 'Courier New', monospace;
-  }
-  .page-group-right {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-wrap: wrap;
-  }
-  .page-group-stats {
-    display: flex;
-    gap: 20px;
-    align-items: center;
-  }
+  .page-group-title h2 { font-size: 15px; font-weight: 700; margin: 0; }
+  .page-group-title .page-id-label { font-size: 10px; color: var(--text-muted); font-family: 'Courier New', monospace; }
+  .page-group-right { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .page-group-stats { display: flex; gap: 20px; align-items: center; }
   .page-stat { text-align: right; }
   .page-stat .pstat-value { font-size: 17px; font-weight: 700; display: block; }
   .page-stat .pstat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-
-  .chevron {
-    font-size: 16px;
-    color: var(--text-muted);
-    transition: transform 0.25s;
-    flex-shrink: 0;
-  }
+  .chevron { font-size: 16px; color: var(--text-muted); transition: transform 0.25s; flex-shrink: 0; }
   .expanded .chevron { transform: rotate(180deg); }
-
   .page-group-body {
     display: none;
     border: 1px solid var(--accent);
@@ -83,12 +54,37 @@
     overflow: hidden;
   }
   .page-group-body.open { display: block; }
+
+  /* Date range pill */
+  .date-range {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .date-range .date-start { color: var(--green); font-weight: 600; }
+  .date-range .date-end { color: var(--red); font-weight: 600; }
+  .date-range .date-ongoing { color: var(--yellow); font-weight: 600; }
+
+  /* Filter selects */
+  .filter-select {
+    background: var(--bg-card2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .filter-select:focus { border-color: var(--accent); }
 </style>
 
 <div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
   <div>
     <h1>Anúncios & Métricas</h1>
-    <p>Agrupados por Página. Total: <strong>{{ total }}</strong> anúncios em <strong>{{ ads_by_page | length }}</strong> página(s).</p>
+    <p>Agrupados por Página. <strong>{{ total }}</strong> anúncios em <strong>{{ ads_by_page | length }}</strong> página(s).</p>
   </div>
   <div style="display: flex; gap: 8px; flex-wrap: wrap;">
     <button class="btn btn-ghost" onclick="toggleAll(true)">↕ Expandir Todos</button>
@@ -117,15 +113,27 @@
 <!-- FILTERS -->
 <form method="GET" action="/ads" class="filters" style="margin-bottom: 24px;">
   <input type="text" name="search" value="{{ search }}" placeholder="Buscar por nome ou ID do anúncio..."/>
-  <select name="page_filter" onchange="this.form.submit()"
-    style="background:var(--bg-card2); border:1px solid var(--border); color:var(--text); border-radius:var(--radius-sm); padding:8px 14px; font-size:14px; font-family:inherit; outline:none;">
+
+  <select name="page_filter" class="filter-select" onchange="this.form.submit()">
     <option value="">Todas as páginas</option>
     {% for p in all_pages %}
       <option value="{{ p.page_id }}" {% if page_filter == p.page_id %}selected{% endif %}>{{ p.page_name }}</option>
     {% endfor %}
   </select>
+
+  <select name="status_filter" class="filter-select" onchange="this.form.submit()">
+    <option value="">Todos os status</option>
+    <option value="ACTIVE"          {% if status_filter == 'ACTIVE' %}selected{% endif %}>✅ Ativo</option>
+    <option value="PAUSED"          {% if status_filter == 'PAUSED' %}selected{% endif %}>⏸ Pausado</option>
+    <option value="CAMPAIGN_PAUSED" {% if status_filter == 'CAMPAIGN_PAUSED' %}selected{% endif %}>⏸ Campanha Pausada</option>
+    <option value="ADSET_PAUSED"    {% if status_filter == 'ADSET_PAUSED' %}selected{% endif %}>⏸ Conjunto Pausado</option>
+    <option value="ARCHIVED"        {% if status_filter == 'ARCHIVED' %}selected{% endif %}>📦 Arquivado</option>
+    <option value="DELETED"         {% if status_filter == 'DELETED' %}selected{% endif %}>🗑 Deletado</option>
+    <option value="WITH_ISSUES"     {% if status_filter == 'WITH_ISSUES' %}selected{% endif %}>⚠️ Com Problemas</option>
+  </select>
+
   <button type="submit" class="btn btn-ghost">🔍 Filtrar</button>
-  {% if search or page_filter %}
+  {% if search or page_filter or status_filter %}
     <a href="/ads" class="btn btn-ghost">Limpar</a>
   {% endif %}
 </form>
@@ -134,11 +142,9 @@
   {% for group in ads_by_page %}
   <div class="page-group" id="group-{{ loop.index }}">
 
-    <!-- COLLAPSIBLE HEADER -->
     <div class="page-group-header {% if loop.first %}expanded{% endif %}"
       onclick="toggleGroup({{ loop.index }})"
       id="header-{{ loop.index }}">
-
       <div class="page-group-title">
         <div class="page-icon">📄</div>
         <div>
@@ -146,7 +152,6 @@
           <span class="page-id-label">Page ID: {{ group.page_id }}</span>
         </div>
       </div>
-
       <div class="page-group-right">
         <div class="page-group-stats">
           <div class="page-stat">
@@ -166,7 +171,6 @@
       </div>
     </div>
 
-    <!-- COLLAPSIBLE BODY -->
     <div class="page-group-body {% if loop.first %}open{% endif %}" id="body-{{ loop.index }}">
       <div class="table-wrap" style="background:var(--bg-card);">
         <table>
@@ -174,6 +178,7 @@
             <tr>
               <th>Anúncio / Criativo</th>
               <th>Status</th>
+              <th>Período (Início → Fim)</th>
               <th>Leads</th>
               <th>Gasto</th>
               <th>Impressões / Cliques</th>
@@ -200,34 +205,64 @@
                   </div>
                 </div>
               </td>
+
               <td>
-                {% if ad.status == 'ACTIVE' or ad.effective_status == 'ACTIVE' %}
+                {% set st = ad.effective_status or ad.status %}
+                {% if st == 'ACTIVE' %}
                   <span class="badge badge-active">● Ativo</span>
-                {% elif ad.status == 'PAUSED' %}
+                {% elif st == 'PAUSED' %}
                   <span class="badge badge-inactive">⏸ Pausado</span>
-                {% elif ad.status %}
-                  <span class="badge badge-skipped">{{ ad.status }}</span>
+                {% elif st in ['CAMPAIGN_PAUSED', 'ADSET_PAUSED'] %}
+                  <span class="badge badge-inactive">⏸ {{ st | replace('_', ' ') | title }}</span>
+                {% elif st == 'ARCHIVED' %}
+                  <span class="badge badge-skipped">📦 Arquivado</span>
+                {% elif st == 'DELETED' %}
+                  <span class="badge badge-failed">🗑 Deletado</span>
+                {% elif st == 'WITH_ISSUES' %}
+                  <span class="badge badge-failed">⚠️ Problemas</span>
+                {% elif st %}
+                  <span class="badge badge-skipped">{{ st }}</span>
                 {% else %}
                   <span class="text-muted">—</span>
                 {% endif %}
               </td>
+
+              <td>
+                <div class="date-range">
+                  {% if ad.start_time %}
+                    <div>▶ <span class="date-start" data-iso="{{ ad.start_time }}">{{ ad.start_time[:10] }}</span></div>
+                  {% else %}
+                    <div class="text-muted">Início: —</div>
+                  {% endif %}
+                  {% if ad.stop_time %}
+                    <div>■ <span class="date-end" data-iso="{{ ad.stop_time }}">{{ ad.stop_time[:10] }}</span></div>
+                  {% else %}
+                    <div>■ <span class="date-ongoing">Sem fim def.</span></div>
+                  {% endif %}
+                </div>
+              </td>
+
               <td><strong style="color:var(--accent2);">{{ item.leads_count }}</strong></td>
+
               <td>
                 {% if insight %}<strong style="color:var(--green);">R$ {{ "%.2f"|format(insight.spend) }}</strong>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
+
               <td>
                 {% if insight %}
                   <div><strong>{{ "{:,}".format(insight.impressions) }}</strong> <span class="text-muted" style="font-size:11px;">impr.</span></div>
                   <div style="font-size:12px; color:var(--text-muted);">{{ "{:,}".format(insight.clicks) }} cliques</div>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
+
               <td>
                 {% if insight %}
                   <div><strong style="color:var(--yellow);">{{ "%.2f"|format(insight.ctr) }}%</strong> <span class="text-muted" style="font-size:11px;">CTR</span></div>
                   <div style="font-size:12px; color:var(--text-muted);">CPC: R$ {{ "%.2f"|format(insight.cpc) }}</div>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
+
               <td>
                 <button class="btn btn-ghost btn-sm" onclick='openAdModal({{ item|tojson }})'>🔍 Criativo</button>
               </td>
@@ -244,11 +279,12 @@
   <!-- PAGINATION -->
   {% if total_pages > 1 %}
   <div class="pagination">
-    {% if page > 1 %}<a href="/ads?page={{ page - 1 }}&search={{ search }}&page_filter={{ page_filter }}">&laquo;</a>{% endif %}
+    {% if page > 1 %}<a href="/ads?page={{ page - 1 }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}">&laquo;</a>{% endif %}
     {% for p in range(1, total_pages + 1) %}
-      <a href="/ads?page={{ p }}&search={{ search }}&page_filter={{ page_filter }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
+      <a href="/ads?page={{ p }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}"
+        class="{% if p == page %}active{% endif %}">{{ p }}</a>
     {% endfor %}
-    {% if page < total_pages %}<a href="/ads?page={{ page + 1 }}&search={{ search }}&page_filter={{ page_filter }}">&raquo;</a>{% endif %}
+    {% if page < total_pages %}<a href="/ads?page={{ page + 1 }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}">&raquo;</a>{% endif %}
   </div>
   {% endif %}
 
@@ -257,15 +293,18 @@
   <div class="icon">📢</div>
   <h3>Nenhum anúncio encontrado</h3>
   <p>
-    {% if search or page_filter %}Nenhum anúncio corresponde ao filtro. <a href="/ads" style="color:var(--accent);">Limpar</a>
-    {% else %}Clique em <strong>⚡ Sincronizar Meta</strong> para buscar anúncios das páginas conectadas.{% endif %}
+    {% if search or page_filter or status_filter %}
+      Nenhum anúncio corresponde ao filtro. <a href="/ads" style="color:var(--accent);">Limpar filtros</a>
+    {% else %}
+      Clique em <strong>⚡ Sincronizar Meta</strong> para buscar anúncios das páginas conectadas.
+    {% endif %}
   </p>
 </div>
 {% endif %}
 
 <!-- AD DETAILS MODAL -->
 <div class="modal-overlay" id="adModal">
-  <div class="modal" style="max-width:560px;">
+  <div class="modal" style="max-width:580px;">
     <h2 style="margin-bottom:4px;" id="modalTitle">Detalhes do Criativo</h2>
     <p class="text-muted" id="modalSubtitle" style="font-size:12px; margin-bottom:16px;"></p>
     <div id="modalBody"></div>
@@ -278,6 +317,19 @@
 
 {% block scripts %}
 <script>
+  // ── Format ISO date string to pt-BR ──
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    } catch { return iso.slice(0, 10); }
+  }
+
+  // ── Format dates in table cells on page load ──
+  document.querySelectorAll("[data-iso]").forEach(el => {
+    el.innerText = fmtDate(el.dataset.iso);
+  });
+
   // ── Toggle individual group ──
   function toggleGroup(idx) {
     const header = document.getElementById("header-" + idx);
@@ -289,57 +341,54 @@
 
   // ── Expand/Collapse all ──
   function toggleAll(expand) {
-    document.querySelectorAll(".page-group-body").forEach((body, i) => {
-      body.classList.toggle("open", expand);
-    });
-    document.querySelectorAll(".page-group-header").forEach((hdr, i) => {
-      hdr.classList.toggle("expanded", expand);
-    });
+    document.querySelectorAll(".page-group-body").forEach(b => b.classList.toggle("open", expand));
+    document.querySelectorAll(".page-group-header").forEach(h => h.classList.toggle("expanded", expand));
   }
 
   // ── Ad creative modal ──
   function openAdModal(data) {
     const ad = data.ad;
-    const insight = data.insight;
+    const ins = data.insight;
     document.getElementById("modalTitle").innerText = ad.creative_title || ad.ad_name || "Criativo";
-    document.getElementById("modalSubtitle").innerText = "ID do Anúncio: " + ad.ad_id;
+    document.getElementById("modalSubtitle").innerText = "ID: " + ad.ad_id;
 
     const imgSrc = ad.creative_image_url || ad.creative_thumbnail_url;
-    const imgHtml = imgSrc
-      ? `<img src="${imgSrc}" style="width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin-bottom:14px; border:1px solid var(--border);" />`
-      : "";
-    const copyHtml = ad.creative_body
-      ? `<div style="background:var(--bg-card2); padding:12px; border-radius:8px; border:1px solid var(--border); font-size:13px; line-height:1.6; margin-bottom:14px;">${ad.creative_body}</div>`
-      : "";
-    const ctaBadge = ad.call_to_action
-      ? `<span class="badge badge-received" style="margin-bottom:12px;">${ad.call_to_action.replace(/_/g,' ')}</span> `
-      : "";
+    const imgHtml = imgSrc ? `<img src="${imgSrc}" style="width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin-bottom:14px; border:1px solid var(--border);" />` : "";
+    const copyHtml = ad.creative_body ? `<div style="background:var(--bg-card2); padding:12px; border-radius:8px; border:1px solid var(--border); font-size:13px; line-height:1.6; margin-bottom:14px;">${ad.creative_body}</div>` : "";
+    const ctaBadge = ad.call_to_action ? `<span class="badge badge-received" style="margin-bottom:12px;">${ad.call_to_action.replace(/_/g,' ')}</span> ` : "";
+
+    // Dates section
+    const startStr = fmtDate(ad.start_time);
+    const stopStr  = ad.stop_time ? fmtDate(ad.stop_time) : `<span style="color:var(--yellow)">Sem data de encerramento</span>`;
+    const datesHtml = `
+      <div style="display:flex; gap:20px; background:var(--bg-card2); padding:10px 14px; border-radius:8px; border:1px solid var(--border); font-size:13px; margin-bottom:14px;">
+        <div>▶ <strong style="color:var(--green)">Início:</strong> ${startStr}</div>
+        <div>■ <strong style="color:var(--red)">Fim:</strong> ${stopStr}</div>
+      </div>`;
 
     let metricsHtml = `<p class="text-muted">Sem métricas disponíveis ainda.</p>`;
-    if (insight) {
+    if (ins) {
       metricsHtml = `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; background:var(--bg-card2); padding:12px; border-radius:8px; border:1px solid var(--border); font-size:13px;">
-          <div>Gasto: <strong style="color:var(--green)">R$ ${insight.spend.toFixed(2)}</strong></div>
-          <div>Impressões: <strong>${insight.impressions.toLocaleString('pt-BR')}</strong></div>
-          <div>Cliques: <strong>${insight.clicks.toLocaleString('pt-BR')}</strong></div>
-          <div>Alcance: <strong>${insight.reach.toLocaleString('pt-BR')}</strong></div>
-          <div>CTR: <strong style="color:var(--yellow)">${insight.ctr.toFixed(2)}%</strong></div>
-          <div>CPC: <strong>R$ ${insight.cpc.toFixed(2)}</strong></div>
-          ${insight.conversions > 0 ? `<div style="grid-column:1/-1">Leads convertidos: <strong style="color:var(--accent2)">${insight.conversions}</strong></div>` : ''}
-          ${insight.date_start ? `<div style="grid-column:1/-1; font-size:11px; color:var(--text-muted);">Período: ${insight.date_start} → ${insight.date_stop}</div>` : ''}
+          <div>Gasto: <strong style="color:var(--green)">R$ ${ins.spend.toFixed(2)}</strong></div>
+          <div>Impressões: <strong>${ins.impressions.toLocaleString('pt-BR')}</strong></div>
+          <div>Cliques: <strong>${ins.clicks.toLocaleString('pt-BR')}</strong></div>
+          <div>Alcance: <strong>${ins.reach.toLocaleString('pt-BR')}</strong></div>
+          <div>CTR: <strong style="color:var(--yellow)">${ins.ctr.toFixed(2)}%</strong></div>
+          <div>CPC: <strong>R$ ${ins.cpc.toFixed(2)}</strong></div>
+          ${ins.conversions > 0 ? `<div style="grid-column:1/-1">Leads convertidos: <strong style="color:var(--accent2)">${ins.conversions}</strong></div>` : ''}
+          ${ins.date_start ? `<div style="grid-column:1/-1; font-size:11px; color:var(--text-muted);">Período métricas: ${fmtDate(ins.date_start)} → ${fmtDate(ins.date_stop)}</div>` : ''}
         </div>`;
     }
 
     document.getElementById("modalBody").innerHTML =
-      imgHtml + ctaBadge + copyHtml +
+      imgHtml + ctaBadge + copyHtml + datesHtml +
       `<h4 style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:8px;">Métricas</h4>` +
       metricsHtml;
     document.getElementById("adModal").classList.add("open");
   }
 
-  function closeAdModal() {
-    document.getElementById("adModal").classList.remove("open");
-  }
+  function closeAdModal() { document.getElementById("adModal").classList.remove("open"); }
   document.getElementById("adModal").addEventListener("click", e => {
     if (e.target === document.getElementById("adModal")) closeAdModal();
   });
