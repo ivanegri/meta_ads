@@ -1099,3 +1099,136 @@ async def api_list_ad_accounts(db: Database = Depends(get_db)):
         ]
     }
 
+
+# ---------------------------------------------------------------------------
+# REST API — Metrics (designed for external AI analysis)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/metrics", tags=["API"])
+async def api_metrics_by_page(
+    db: Database = Depends(get_db),
+    page_id: str = Query("", description="Filter by a specific Facebook Page ID"),
+    status: str = Query("", description="Filter ads by status (ACTIVE, PAUSED, etc.)"),
+    date_preset: str = Query("maximum", description="Insights date preset (maximum, last_30d, last_7d, today...)"),
+    include_creatives: bool = Query(False, description="Include ad creative details (title, body, image_url)"),
+):
+    """
+    Returns all ads grouped by Page (client/business) with full performance metrics.
+
+    Designed for external AI analysis. Each page group contains:
+    - page_id, page_name
+    - Aggregated totals (spend, leads, impressions, clicks)
+    - List of individual ads with their metrics
+
+    **Usage examples:**
+    - `/api/metrics` → All pages, all time
+    - `/api/metrics?page_id=123456` → Single page
+    - `/api/metrics?status=ACTIVE&date_preset=last_30d` → Only active ads, last 30 days
+    - `/api/metrics?include_creatives=true` → Include ad copy, title and image URLs
+    """
+    # Build page name map
+    page_name_map: dict[str, str] = {}
+    for conn in db.meta_connections.find({}, {"page_id": 1, "page_name": 1}):
+        pid = conn.get("page_id")
+        if pid:
+            page_name_map[pid] = conn.get("page_name") or pid
+
+    # Build ad query
+    ad_filter: dict = {}
+    if page_id:
+        ad_filter["page_id"] = page_id
+    if status:
+        ad_filter["$or"] = [{"status": status.upper()}, {"effective_status": status.upper()}]
+
+    all_ads = list(db.ads.find(ad_filter).sort([("page_id", 1), ("ad_name", 1)]))
+
+    groups: dict[str, dict] = {}
+
+    for ad_doc in all_ads:
+        ad = models.AdDetail(ad_doc)
+
+        # Fetch insight for the requested date_preset, fall back to any available
+        insight_doc = db.insights.find_one({"object_id": ad.ad_id, "date_preset": date_preset})
+        if not insight_doc and date_preset != "maximum":
+            insight_doc = db.insights.find_one({"object_id": ad.ad_id})
+
+        insight = models.AdInsight(insight_doc) if insight_doc else None
+        leads_count = db.leads.count_documents({"ad_id": ad.ad_id})
+
+        ad_entry: dict = {
+            "ad_id": ad.ad_id,
+            "ad_name": ad.ad_name,
+            "status": ad.status,
+            "effective_status": ad.effective_status,
+            "adset_id": ad.adset_id,
+            "campaign_id": ad.campaign_id,
+            "leads_captured": leads_count,
+            "metrics": {
+                "spend": insight.spend if insight else 0.0,
+                "impressions": insight.impressions if insight else 0,
+                "clicks": insight.clicks if insight else 0,
+                "reach": insight.reach if insight else 0,
+                "ctr": insight.ctr if insight else 0.0,
+                "cpc": insight.cpc if insight else 0.0,
+                "cpm": insight.cpm if insight else 0.0,
+                "conversions": insight.conversions if insight else 0,
+                "date_preset": insight.date_preset if insight else date_preset,
+                "date_start": insight.date_start if insight else None,
+                "date_stop": insight.date_stop if insight else None,
+            } if insight else None,
+        }
+
+        if include_creatives:
+            ad_entry["creative"] = {
+                "title": ad.creative_title,
+                "body": ad.creative_body,
+                "image_url": ad.creative_image_url,
+                "thumbnail_url": ad.creative_thumbnail_url,
+                "call_to_action": ad.call_to_action,
+            }
+
+        pid = ad.page_id or "__unknown__"
+        if pid not in groups:
+            groups[pid] = {
+                "page_id": pid,
+                "page_name": page_name_map.get(pid, pid if pid != "__unknown__" else "Sem Página"),
+                "totals": {
+                    "ads_count": 0,
+                    "total_leads": 0,
+                    "total_spend": 0.0,
+                    "total_impressions": 0,
+                    "total_clicks": 0,
+                    "total_conversions": 0,
+                },
+                "ads": [],
+            }
+
+        groups[pid]["ads"].append(ad_entry)
+        groups[pid]["totals"]["ads_count"] += 1
+        groups[pid]["totals"]["total_leads"] += leads_count
+        if insight:
+            groups[pid]["totals"]["total_spend"] += insight.spend
+            groups[pid]["totals"]["total_impressions"] += insight.impressions
+            groups[pid]["totals"]["total_clicks"] += insight.clicks
+            groups[pid]["totals"]["total_conversions"] += insight.conversions
+
+    result = list(groups.values())
+
+    return {
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "filters": {
+            "page_id": page_id or None,
+            "status": status or None,
+            "date_preset": date_preset,
+            "include_creatives": include_creatives,
+        },
+        "summary": {
+            "total_pages": len(result),
+            "total_ads": sum(g["totals"]["ads_count"] for g in result),
+            "total_leads": sum(g["totals"]["total_leads"] for g in result),
+            "total_spend": round(sum(g["totals"]["total_spend"] for g in result), 2),
+            "total_impressions": sum(g["totals"]["total_impressions"] for g in result),
+            "total_clicks": sum(g["totals"]["total_clicks"] for g in result),
+        },
+        "pages": result,
+    }

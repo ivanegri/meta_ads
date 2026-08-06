@@ -4,21 +4,32 @@
 
 {% block content %}
 <style>
-  .page-group {
-    margin-bottom: 36px;
-  }
+  .page-group { margin-bottom: 16px; }
+
   .page-group-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 14px 20px;
-    background: linear-gradient(135deg, rgba(79,127,255,0.12), rgba(155,89,245,0.12));
+    background: linear-gradient(135deg, rgba(79,127,255,0.10), rgba(155,89,245,0.10));
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    margin-bottom: 14px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s, border-color 0.2s;
     flex-wrap: wrap;
     gap: 12px;
   }
+  .page-group-header:hover {
+    background: linear-gradient(135deg, rgba(79,127,255,0.18), rgba(155,89,245,0.18));
+    border-color: var(--accent);
+  }
+  .page-group-header.expanded {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-color: var(--accent);
+  }
+
   .page-group-title {
     display: flex;
     align-items: center;
@@ -31,47 +42,63 @@
     font-size: 16px; flex-shrink: 0;
   }
   .page-group-title h2 {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     margin: 0;
   }
   .page-group-title .page-id-label {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-muted);
     font-family: 'Courier New', monospace;
+  }
+  .page-group-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
   }
   .page-group-stats {
     display: flex;
     gap: 20px;
     align-items: center;
-    flex-wrap: wrap;
   }
-  .page-stat {
-    text-align: center;
-  }
-  .page-stat .pstat-value {
-    font-size: 18px;
-    font-weight: 700;
-    display: block;
-  }
-  .page-stat .pstat-label {
-    font-size: 10px;
+  .page-stat { text-align: right; }
+  .page-stat .pstat-value { font-size: 17px; font-weight: 700; display: block; }
+  .page-stat .pstat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .chevron {
+    font-size: 16px;
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    transition: transform 0.25s;
+    flex-shrink: 0;
   }
+  .expanded .chevron { transform: rotate(180deg); }
+
+  .page-group-body {
+    display: none;
+    border: 1px solid var(--accent);
+    border-top: none;
+    border-bottom-left-radius: var(--radius);
+    border-bottom-right-radius: var(--radius);
+    overflow: hidden;
+  }
+  .page-group-body.open { display: block; }
 </style>
 
 <div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
   <div>
     <h1>Anúncios & Métricas</h1>
-    <p>Agrupados por Página (cliente/negócio). Total: <strong>{{ total }}</strong> anúncios.</p>
+    <p>Agrupados por Página. Total: <strong>{{ total }}</strong> anúncios em <strong>{{ ads_by_page | length }}</strong> página(s).</p>
   </div>
-  <form action="/admin/sync-ads" method="POST" style="margin: 0;">
-    <button type="submit" class="btn btn-primary" onclick="this.innerHTML='⚡ Sincronizando...';">
-      ⚡ Sincronizar Meta
-    </button>
-  </form>
+  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <button class="btn btn-ghost" onclick="toggleAll(true)">↕ Expandir Todos</button>
+    <button class="btn btn-ghost" onclick="toggleAll(false)">↕ Recolher Todos</button>
+    <form action="/admin/sync-ads" method="POST" style="margin: 0;">
+      <button type="submit" class="btn btn-primary" onclick="this.innerHTML='⚡ Sincronizando...';">
+        ⚡ Sincronizar Meta
+      </button>
+    </form>
+  </div>
 </div>
 
 {% if sync_result %}
@@ -79,7 +106,8 @@
   <div style="color: var(--green);">
     <strong>✅ Sincronização concluída!</strong>
     <span style="margin-left: 10px; font-size: 13px; color: var(--text);">
-      Anúncios: <strong>{{ sync_result.ads_synced }}</strong> | Métricas: <strong>{{ sync_result.insights_synced }}</strong> | Campanhas: <strong>{{ sync_result.campaigns_synced }}</strong>
+      Anúncios: <strong>{{ sync_result.ads_synced }}</strong> |
+      Métricas: <strong>{{ sync_result.insights_synced }}</strong>
     </span>
   </div>
   <a href="/ads" style="color: var(--text-muted); text-decoration: none; font-size: 18px;">&times;</a>
@@ -88,18 +116,12 @@
 
 <!-- FILTERS -->
 <form method="GET" action="/ads" class="filters" style="margin-bottom: 24px;">
-  <input
-    type="text"
-    name="search"
-    value="{{ search }}"
-    placeholder="Buscar por nome, ID do anúncio ou campanha..."
-  />
-  <select name="page_filter" onchange="this.form.submit()" style="background: var(--bg-card2); border: 1px solid var(--border); color: var(--text); border-radius: var(--radius-sm); padding: 8px 14px; font-size: 14px; font-family: inherit; outline: none;">
+  <input type="text" name="search" value="{{ search }}" placeholder="Buscar por nome ou ID do anúncio..."/>
+  <select name="page_filter" onchange="this.form.submit()"
+    style="background:var(--bg-card2); border:1px solid var(--border); color:var(--text); border-radius:var(--radius-sm); padding:8px 14px; font-size:14px; font-family:inherit; outline:none;">
     <option value="">Todas as páginas</option>
     {% for p in all_pages %}
-      <option value="{{ p.page_id }}" {% if page_filter == p.page_id %}selected{% endif %}>
-        {{ p.page_name }}
-      </option>
+      <option value="{{ p.page_id }}" {% if page_filter == p.page_id %}selected{% endif %}>{{ p.page_name }}</option>
     {% endfor %}
   </select>
   <button type="submit" class="btn btn-ghost">🔍 Filtrar</button>
@@ -110,9 +132,13 @@
 
 {% if ads_by_page %}
   {% for group in ads_by_page %}
-  <div class="page-group">
-    <!-- PAGE / BUSINESS HEADER -->
-    <div class="page-group-header">
+  <div class="page-group" id="group-{{ loop.index }}">
+
+    <!-- COLLAPSIBLE HEADER -->
+    <div class="page-group-header {% if loop.first %}expanded{% endif %}"
+      onclick="toggleGroup({{ loop.index }})"
+      id="header-{{ loop.index }}">
+
       <div class="page-group-title">
         <div class="page-icon">📄</div>
         <div>
@@ -120,131 +146,109 @@
           <span class="page-id-label">Page ID: {{ group.page_id }}</span>
         </div>
       </div>
-      <div class="page-group-stats">
-        <div class="page-stat">
-          <span class="pstat-value" style="color: var(--accent);">{{ group.ads | length }}</span>
-          <span class="pstat-label">Anúncios</span>
+
+      <div class="page-group-right">
+        <div class="page-group-stats">
+          <div class="page-stat">
+            <span class="pstat-value" style="color:var(--accent);">{{ group.ads | length }}</span>
+            <span class="pstat-label">Anúncios</span>
+          </div>
+          <div class="page-stat">
+            <span class="pstat-value" style="color:var(--accent2);">{{ group.total_leads }}</span>
+            <span class="pstat-label">Leads</span>
+          </div>
+          <div class="page-stat">
+            <span class="pstat-value" style="color:var(--green);">R$ {{ "%.2f"|format(group.total_spend) }}</span>
+            <span class="pstat-label">Gasto Total</span>
+          </div>
         </div>
-        <div class="page-stat">
-          <span class="pstat-value" style="color: var(--accent2);">{{ group.total_leads }}</span>
-          <span class="pstat-label">Leads</span>
-        </div>
-        <div class="page-stat">
-          <span class="pstat-value" style="color: var(--green);">R$ {{ "%.2f"|format(group.total_spend) }}</span>
-          <span class="pstat-label">Gasto Total</span>
-        </div>
+        <span class="chevron">▼</span>
       </div>
     </div>
 
-    <!-- ADS TABLE FOR THIS PAGE -->
-    <div class="table-wrap card" style="padding: 0;">
-      <table>
-        <thead>
-          <tr>
-            <th>Anúncio / Criativo</th>
-            <th>Status</th>
-            <th>Leads</th>
-            <th>Gasto</th>
-            <th>Impressões / Cliques</th>
-            <th>CTR / CPC</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in group.ads %}
-          {% set ad = item.ad %}
-          {% set insight = item.insight %}
-          <tr>
-            <td>
-              <div style="display: flex; align-items: center; gap: 12px;">
-                {% if ad.creative_thumbnail_url or ad.creative_image_url %}
-                  <img src="{{ ad.creative_thumbnail_url or ad.creative_image_url }}" alt="Criativo"
-                    style="width: 44px; height: 44px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); flex-shrink: 0;" />
-                {% else %}
-                  <div style="width: 44px; height: 44px; border-radius: 8px; background: var(--bg-card2); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
-                    📢
+    <!-- COLLAPSIBLE BODY -->
+    <div class="page-group-body {% if loop.first %}open{% endif %}" id="body-{{ loop.index }}">
+      <div class="table-wrap" style="background:var(--bg-card);">
+        <table>
+          <thead>
+            <tr>
+              <th>Anúncio / Criativo</th>
+              <th>Status</th>
+              <th>Leads</th>
+              <th>Gasto</th>
+              <th>Impressões / Cliques</th>
+              <th>CTR / CPC</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in group.ads %}
+            {% set ad = item.ad %}
+            {% set insight = item.insight %}
+            <tr>
+              <td>
+                <div style="display:flex; align-items:center; gap:12px;">
+                  {% if ad.creative_thumbnail_url or ad.creative_image_url %}
+                    <img src="{{ ad.creative_thumbnail_url or ad.creative_image_url }}" alt="Criativo"
+                      style="width:44px; height:44px; border-radius:8px; object-fit:cover; border:1px solid var(--border); flex-shrink:0;" />
+                  {% else %}
+                    <div style="width:44px; height:44px; border-radius:8px; background:var(--bg-card2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">📢</div>
+                  {% endif %}
+                  <div>
+                    <strong style="font-size:13px; display:block; line-height:1.3;">{{ ad.ad_name or ad.ad_id }}</strong>
+                    <span class="mono text-muted" style="font-size:10px;">{{ ad.ad_id }}</span>
                   </div>
-                {% endif %}
-                <div>
-                  <strong style="font-size: 13px; display: block; line-height: 1.3;">
-                    {{ ad.ad_name or ad.ad_id }}
-                  </strong>
-                  <span class="mono text-muted" style="font-size: 10px;">{{ ad.ad_id }}</span>
                 </div>
-              </div>
-            </td>
-
-            <td>
-              {% if ad.status == 'ACTIVE' or ad.effective_status == 'ACTIVE' %}
-                <span class="badge badge-active">● Ativo</span>
-              {% elif ad.status == 'PAUSED' %}
-                <span class="badge badge-inactive">⏸ Pausado</span>
-              {% elif ad.status %}
-                <span class="badge badge-skipped">{{ ad.status }}</span>
-              {% else %}
-                <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-
-            <td>
-              <strong style="font-size: 15px; color: var(--accent2);">{{ item.leads_count }}</strong>
-            </td>
-
-            <td>
-              {% if insight %}
-                <strong style="color: var(--green);">R$ {{ "%.2f"|format(insight.spend) }}</strong>
-              {% else %}
-                <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-
-            <td>
-              {% if insight %}
-                <div><strong>{{ "{:,}".format(insight.impressions) }}</strong> <span class="text-muted" style="font-size: 11px;">impr.</span></div>
-                <div style="font-size: 12px; color: var(--text-muted);">{{ "{:,}".format(insight.clicks) }} cliques</div>
-              {% else %}
-                <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-
-            <td>
-              {% if insight %}
-                <div><strong style="color: var(--yellow);">{{ "%.2f"|format(insight.ctr) }}%</strong> <span class="text-muted" style="font-size: 11px;">CTR</span></div>
-                <div style="font-size: 12px; color: var(--text-muted);">CPC: R$ {{ "%.2f"|format(insight.cpc) }}</div>
-              {% else %}
-                <span class="text-muted">—</span>
-              {% endif %}
-            </td>
-
-            <td>
-              <button
-                class="btn btn-ghost btn-sm"
-                onclick='openAdModal({{ item|tojson }})'
-              >
-                🔍 Criativo
-              </button>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+              </td>
+              <td>
+                {% if ad.status == 'ACTIVE' or ad.effective_status == 'ACTIVE' %}
+                  <span class="badge badge-active">● Ativo</span>
+                {% elif ad.status == 'PAUSED' %}
+                  <span class="badge badge-inactive">⏸ Pausado</span>
+                {% elif ad.status %}
+                  <span class="badge badge-skipped">{{ ad.status }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td><strong style="color:var(--accent2);">{{ item.leads_count }}</strong></td>
+              <td>
+                {% if insight %}<strong style="color:var(--green);">R$ {{ "%.2f"|format(insight.spend) }}</strong>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td>
+                {% if insight %}
+                  <div><strong>{{ "{:,}".format(insight.impressions) }}</strong> <span class="text-muted" style="font-size:11px;">impr.</span></div>
+                  <div style="font-size:12px; color:var(--text-muted);">{{ "{:,}".format(insight.clicks) }} cliques</div>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td>
+                {% if insight %}
+                  <div><strong style="color:var(--yellow);">{{ "%.2f"|format(insight.ctr) }}%</strong> <span class="text-muted" style="font-size:11px;">CTR</span></div>
+                  <div style="font-size:12px; color:var(--text-muted);">CPC: R$ {{ "%.2f"|format(insight.cpc) }}</div>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td>
+                <button class="btn btn-ghost btn-sm" onclick='openAdModal({{ item|tojson }})'>🔍 Criativo</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
+
   </div>
   {% endfor %}
 
   <!-- PAGINATION -->
   {% if total_pages > 1 %}
   <div class="pagination">
-    {% if page > 1 %}
-      <a href="/ads?page={{ page - 1 }}&search={{ search }}&page_filter={{ page_filter }}">&laquo;</a>
-    {% endif %}
+    {% if page > 1 %}<a href="/ads?page={{ page - 1 }}&search={{ search }}&page_filter={{ page_filter }}">&laquo;</a>{% endif %}
     {% for p in range(1, total_pages + 1) %}
-      <a href="/ads?page={{ p }}&search={{ search }}&page_filter={{ page_filter }}"
-        class="{% if p == page %}active{% endif %}">{{ p }}</a>
+      <a href="/ads?page={{ p }}&search={{ search }}&page_filter={{ page_filter }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
     {% endfor %}
-    {% if page < total_pages %}
-      <a href="/ads?page={{ page + 1 }}&search={{ search }}&page_filter={{ page_filter }}">&raquo;</a>
-    {% endif %}
+    {% if page < total_pages %}<a href="/ads?page={{ page + 1 }}&search={{ search }}&page_filter={{ page_filter }}">&raquo;</a>{% endif %}
   </div>
   {% endif %}
 
@@ -253,82 +257,91 @@
   <div class="icon">📢</div>
   <h3>Nenhum anúncio encontrado</h3>
   <p>
-    {% if search or page_filter %}
-      Nenhum anúncio corresponde ao filtro atual. <a href="/ads" style="color: var(--accent);">Limpar filtros</a>
-    {% else %}
-      Clique em <strong>⚡ Sincronizar Meta</strong> para buscar os anúncios das páginas conectadas.
-    {% endif %}
+    {% if search or page_filter %}Nenhum anúncio corresponde ao filtro. <a href="/ads" style="color:var(--accent);">Limpar</a>
+    {% else %}Clique em <strong>⚡ Sincronizar Meta</strong> para buscar anúncios das páginas conectadas.{% endif %}
   </p>
 </div>
 {% endif %}
 
 <!-- AD DETAILS MODAL -->
 <div class="modal-overlay" id="adModal">
-  <div class="modal" style="max-width: 560px;">
-    <h2 style="margin-bottom: 4px;" id="modalTitle">Detalhes do Criativo</h2>
-    <p class="text-muted" id="modalSubtitle" style="font-size: 12px; margin-bottom: 16px;"></p>
+  <div class="modal" style="max-width:560px;">
+    <h2 style="margin-bottom:4px;" id="modalTitle">Detalhes do Criativo</h2>
+    <p class="text-muted" id="modalSubtitle" style="font-size:12px; margin-bottom:16px;"></p>
     <div id="modalBody"></div>
-    <div class="modal-actions" style="margin-top: 20px;">
+    <div class="modal-actions" style="margin-top:20px;">
       <button class="btn btn-ghost" onclick="closeAdModal()">Fechar</button>
     </div>
   </div>
 </div>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
+  // ── Toggle individual group ──
+  function toggleGroup(idx) {
+    const header = document.getElementById("header-" + idx);
+    const body   = document.getElementById("body-" + idx);
+    const isOpen = body.classList.contains("open");
+    body.classList.toggle("open", !isOpen);
+    header.classList.toggle("expanded", !isOpen);
+  }
+
+  // ── Expand/Collapse all ──
+  function toggleAll(expand) {
+    document.querySelectorAll(".page-group-body").forEach((body, i) => {
+      body.classList.toggle("open", expand);
+    });
+    document.querySelectorAll(".page-group-header").forEach((hdr, i) => {
+      hdr.classList.toggle("expanded", expand);
+    });
+  }
+
+  // ── Ad creative modal ──
   function openAdModal(data) {
     const ad = data.ad;
     const insight = data.insight;
-
     document.getElementById("modalTitle").innerText = ad.creative_title || ad.ad_name || "Criativo";
     document.getElementById("modalSubtitle").innerText = "ID do Anúncio: " + ad.ad_id;
 
-    let imgHtml = "";
     const imgSrc = ad.creative_image_url || ad.creative_thumbnail_url;
-    if (imgSrc) {
-      imgHtml = `<img src="${imgSrc}" style="width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin-bottom:14px; border:1px solid var(--border);" />`;
-    }
+    const imgHtml = imgSrc
+      ? `<img src="${imgSrc}" style="width:100%; max-height:220px; object-fit:cover; border-radius:8px; margin-bottom:14px; border:1px solid var(--border);" />`
+      : "";
+    const copyHtml = ad.creative_body
+      ? `<div style="background:var(--bg-card2); padding:12px; border-radius:8px; border:1px solid var(--border); font-size:13px; line-height:1.6; margin-bottom:14px;">${ad.creative_body}</div>`
+      : "";
+    const ctaBadge = ad.call_to_action
+      ? `<span class="badge badge-received" style="margin-bottom:12px;">${ad.call_to_action.replace(/_/g,' ')}</span> `
+      : "";
 
-    let copyHtml = "";
-    if (ad.creative_body) {
-      copyHtml = `<div style="background:var(--bg-card2); padding:12px; border-radius:8px; border:1px solid var(--border); font-size:13px; line-height:1.6; margin-bottom:14px; color:var(--text);">${ad.creative_body}</div>`;
-    }
-
-    let metricsHtml = `<p class="text-muted">Sem métricas acumuladas ainda.</p>`;
+    let metricsHtml = `<p class="text-muted">Sem métricas disponíveis ainda.</p>`;
     if (insight) {
       metricsHtml = `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; background:var(--bg-card2); padding:12px; border-radius:8px; border:1px solid var(--border); font-size:13px;">
-          <div>Gasto Total: <strong style="color:var(--green)">R$ ${insight.spend.toFixed(2)}</strong></div>
+          <div>Gasto: <strong style="color:var(--green)">R$ ${insight.spend.toFixed(2)}</strong></div>
           <div>Impressões: <strong>${insight.impressions.toLocaleString('pt-BR')}</strong></div>
           <div>Cliques: <strong>${insight.clicks.toLocaleString('pt-BR')}</strong></div>
           <div>Alcance: <strong>${insight.reach.toLocaleString('pt-BR')}</strong></div>
           <div>CTR: <strong style="color:var(--yellow)">${insight.ctr.toFixed(2)}%</strong></div>
-          <div>CPC Médio: <strong>R$ ${insight.cpc.toFixed(2)}</strong></div>
-          ${insight.conversions > 0 ? `<div style="grid-column:1/-1">Conversões (leads): <strong style="color:var(--accent2)">${insight.conversions}</strong></div>` : ''}
+          <div>CPC: <strong>R$ ${insight.cpc.toFixed(2)}</strong></div>
+          ${insight.conversions > 0 ? `<div style="grid-column:1/-1">Leads convertidos: <strong style="color:var(--accent2)">${insight.conversions}</strong></div>` : ''}
           ${insight.date_start ? `<div style="grid-column:1/-1; font-size:11px; color:var(--text-muted);">Período: ${insight.date_start} → ${insight.date_stop}</div>` : ''}
         </div>`;
     }
 
-    let ctaBadge = "";
-    if (ad.call_to_action) {
-      ctaBadge = `<span class="badge badge-received" style="margin-bottom:12px; display:inline-flex;">${ad.call_to_action.replace(/_/g, ' ')}</span>`;
-    }
-
-    document.getElementById("modalBody").innerHTML = imgHtml + ctaBadge + copyHtml +
-      `<h4 style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:8px;">Métricas de Desempenho</h4>` +
+    document.getElementById("modalBody").innerHTML =
+      imgHtml + ctaBadge + copyHtml +
+      `<h4 style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); margin-bottom:8px;">Métricas</h4>` +
       metricsHtml;
-
     document.getElementById("adModal").classList.add("open");
   }
 
   function closeAdModal() {
     document.getElementById("adModal").classList.remove("open");
   }
-
-  document.getElementById("adModal").addEventListener("click", function(e) {
-    if (e.target === this) closeAdModal();
+  document.getElementById("adModal").addEventListener("click", e => {
+    if (e.target === document.getElementById("adModal")) closeAdModal();
   });
 </script>
 {% endblock %}
