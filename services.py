@@ -14,12 +14,32 @@ from typing import Optional
 import httpx
 from pymongo.database import Database
 
-from models import Lead, InstanceMapping, MetaConnection
+from models import (
+    Lead,
+    InstanceMapping,
+    MetaConnection,
+    AdDetail,
+    AdSetDetail,
+    CampaignDetail,
+    AdInsight,
+    AdAccountDetail,
+)
 
 logger = logging.getLogger(__name__)
 
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "")
 META_GRAPH_API_VERSION = "v19.0"
+
+
+def _get_access_token(db: Database, page_id: Optional[str] = None) -> Optional[str]:
+    """Helper to retrieve the page-specific token or fallback to global META_ACCESS_TOKEN."""
+    access_token = META_ACCESS_TOKEN
+    if page_id:
+        conn_doc = db.meta_connections.find_one({"page_id": page_id, "active": True})
+        if conn_doc and conn_doc.get("page_access_token"):
+            access_token = conn_doc.get("page_access_token")
+    return access_token if access_token else None
+
 
 
 # ---------------------------------------------------------------------------
@@ -66,8 +86,346 @@ def fetch_lead_details(lead_id: str, db: Database, page_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
+# 1b. Fetch Ad, AdSet, Campaign, Insights & Account details from Meta
+# ---------------------------------------------------------------------------
+
+def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) -> Optional[dict]:
+    """
+    Fetches full ad details (name, status, effective_status, creative, adset_id, campaign_id)
+    from Graph API and upserts into the 'ads' MongoDB collection.
+    """
+    if not ad_id:
+        return None
+
+    access_token = _get_access_token(db, page_id)
+    if not access_token:
+        return None
+
+    url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{ad_id}"
+    params = {
+        "fields": "id,name,status,effective_status,adset_id,campaign_id,creative{id,name,title,body,image_url,thumbnail_url,call_to_action_type}",
+        "access_token": access_token,
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+            creative = data.get("creative", {})
+            now = datetime.utcnow()
+            doc = {
+                "ad_id": str(data.get("id", ad_id)),
+                "ad_name": data.get("name"),
+                "status": data.get("status"),
+                "effective_status": data.get("effective_status"),
+                "adset_id": str(data.get("adset_id")) if data.get("adset_id") else None,
+                "campaign_id": str(data.get("campaign_id")) if data.get("campaign_id") else None,
+                "creative_id": str(creative.get("id")) if creative.get("id") else None,
+                "creative_title": creative.get("title") or creative.get("name"),
+                "creative_body": creative.get("body"),
+                "creative_image_url": creative.get("image_url"),
+                "creative_thumbnail_url": creative.get("thumbnail_url"),
+                "call_to_action": creative.get("call_to_action_type"),
+                "page_id": page_id,
+                "updated_at": now,
+            }
+
+            db.ads.update_one(
+                {"ad_id": doc["ad_id"]},
+                {"$set": doc, "$setOnInsert": {"created_at": now}},
+                upsert=True
+            )
+            logger.info(f"Ad details cached for ad_id={ad_id}")
+            return doc
+    except Exception as e:
+        logger.error(f"Error fetching ad details for ad_id={ad_id}: {e}")
+        return None
+
+
+def fetch_adset_details(adset_id: str, db: Database, page_id: Optional[str] = None) -> Optional[dict]:
+    """
+    Fetches adset details (name, status, budget, targeting) from Graph API and upserts into 'adsets'.
+    """
+    if not adset_id:
+        return None
+
+    access_token = _get_access_token(db, page_id)
+    if not access_token:
+        return None
+
+    url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{adset_id}"
+    params = {
+        "fields": "id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget,targeting",
+        "access_token": access_token,
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+            now = datetime.utcnow()
+            doc = {
+                "adset_id": str(data.get("id", adset_id)),
+                "adset_name": data.get("name"),
+                "status": data.get("status"),
+                "effective_status": data.get("effective_status"),
+                "campaign_id": str(data.get("campaign_id")) if data.get("campaign_id") else None,
+                "daily_budget": data.get("daily_budget"),
+                "lifetime_budget": data.get("lifetime_budget"),
+                "targeting": data.get("targeting"),
+                "updated_at": now,
+            }
+
+            db.adsets.update_one(
+                {"adset_id": doc["adset_id"]},
+                {"$set": doc, "$setOnInsert": {"created_at": now}},
+                upsert=True
+            )
+            logger.info(f"AdSet details cached for adset_id={adset_id}")
+            return doc
+    except Exception as e:
+        logger.error(f"Error fetching adset details for adset_id={adset_id}: {e}")
+        return None
+
+
+def fetch_campaign_details(campaign_id: str, db: Database, page_id: Optional[str] = None) -> Optional[dict]:
+    """
+    Fetches campaign details (name, status, objective, budget) from Graph API and upserts into 'campaigns'.
+    """
+    if not campaign_id:
+        return None
+
+    access_token = _get_access_token(db, page_id)
+    if not access_token:
+        return None
+
+    url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{campaign_id}"
+    params = {
+        "fields": "id,name,status,effective_status,objective,daily_budget,lifetime_budget,buying_type",
+        "access_token": access_token,
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+            now = datetime.utcnow()
+            doc = {
+                "campaign_id": str(data.get("id", campaign_id)),
+                "campaign_name": data.get("name"),
+                "status": data.get("status"),
+                "effective_status": data.get("effective_status"),
+                "objective": data.get("objective"),
+                "daily_budget": data.get("daily_budget"),
+                "lifetime_budget": data.get("lifetime_budget"),
+                "buying_type": data.get("buying_type"),
+                "updated_at": now,
+            }
+
+            db.campaigns.update_one(
+                {"campaign_id": doc["campaign_id"]},
+                {"$set": doc, "$setOnInsert": {"created_at": now}},
+                upsert=True
+            )
+            logger.info(f"Campaign details cached for campaign_id={campaign_id}")
+            return doc
+    except Exception as e:
+        logger.error(f"Error fetching campaign details for campaign_id={campaign_id}: {e}")
+        return None
+
+
+def fetch_object_insights(
+    object_id: str,
+    db: Database,
+    object_type: str = "ad",
+    date_preset: str = "maximum",
+    page_id: Optional[str] = None
+) -> Optional[dict]:
+    """
+    Fetches performance metrics (spend, impressions, clicks, reach, cpc, cpm, ctr, conversions)
+    for an Ad, AdSet, Campaign, or Ad Account and upserts into 'insights'.
+    """
+    if not object_id:
+        return None
+
+    access_token = _get_access_token(db, page_id)
+    if not access_token:
+        return None
+
+    url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{object_id}/insights"
+    params = {
+        "fields": "spend,impressions,clicks,reach,frequency,cpc,cpm,ctr,conversions,actions,date_start,date_stop",
+        "date_preset": date_preset,
+        "access_token": access_token,
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            res_data = resp.json()
+            items = res_data.get("data", [])
+            if not items:
+                logger.info(f"No insights returned for {object_type} {object_id}")
+                return None
+
+            item = items[0]
+            # Extract conversions from actions list if available
+            conversions = 0
+            for action in item.get("actions", []):
+                if action.get("action_type") in ("lead", "offsite_conversion.fb_pixel_lead", "onsite_conversion.lead_grouped"):
+                    try:
+                        conversions += int(action.get("value", 0))
+                    except ValueError:
+                        pass
+
+            now = datetime.utcnow()
+            doc = {
+                "object_id": str(object_id),
+                "object_type": object_type,
+                "spend": float(item.get("spend", 0.0)),
+                "impressions": int(item.get("impressions", 0)),
+                "clicks": int(item.get("clicks", 0)),
+                "reach": int(item.get("reach", 0)),
+                "frequency": float(item.get("frequency", 0.0)),
+                "cpc": float(item.get("cpc", 0.0)),
+                "cpm": float(item.get("cpm", 0.0)),
+                "ctr": float(item.get("ctr", 0.0)),
+                "conversions": conversions,
+                "date_preset": date_preset,
+                "date_start": item.get("date_start"),
+                "date_stop": item.get("date_stop"),
+                "updated_at": now,
+            }
+
+            db.insights.update_one(
+                {"object_id": str(object_id), "date_preset": date_preset},
+                {"$set": doc, "$setOnInsert": {"created_at": now}},
+                upsert=True
+            )
+            logger.info(f"Insights updated for {object_type} {object_id}")
+            return doc
+    except Exception as e:
+        logger.error(f"Error fetching insights for {object_type} {object_id}: {e}")
+        return None
+
+
+def fetch_user_ad_accounts(user_token: str, db: Database) -> list[dict]:
+    """
+    Fetches all Ad Accounts accessible by user_token and upserts into 'ad_accounts'.
+    """
+    url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/me/adaccounts"
+    params = {
+        "fields": "id,name,account_id,account_status,currency,timezone_name",
+        "access_token": user_token,
+        "limit": 100,
+    }
+    accounts = []
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            now = datetime.utcnow()
+            for acc in data:
+                account_id = acc.get("account_id") or acc.get("id")
+                doc = {
+                    "account_id": str(account_id),
+                    "name": acc.get("name"),
+                    "account_status": acc.get("account_status"),
+                    "currency": acc.get("currency", "BRL"),
+                    "timezone_name": acc.get("timezone_name"),
+                    "updated_at": now,
+                }
+                db.ad_accounts.update_one(
+                    {"account_id": str(account_id)},
+                    {"$set": doc, "$setOnInsert": {"created_at": now}},
+                    upsert=True
+                )
+                accounts.append(doc)
+    except Exception as e:
+        logger.error(f"Error fetching user ad accounts: {e}")
+    return accounts
+
+
+def enrich_lead_metadata(db: Database, lead_data: dict):
+    """
+    Enriches lead with Ad, AdSet, Campaign details & performance metrics.
+    Safe execution: never raises an exception.
+    """
+    page_id = lead_data.get("page_id")
+    ad_id = lead_data.get("ad_id")
+    adset_id = lead_data.get("adset_id")
+    campaign_id = lead_data.get("campaign_id")
+
+    try:
+        if ad_id:
+            fetch_ad_details(str(ad_id), db, page_id=page_id)
+            fetch_object_insights(str(ad_id), db, object_type="ad", page_id=page_id)
+        if adset_id:
+            fetch_adset_details(str(adset_id), db, page_id=page_id)
+        if campaign_id:
+            fetch_campaign_details(str(campaign_id), db, page_id=page_id)
+            fetch_object_insights(str(campaign_id), db, object_type="campaign", page_id=page_id)
+    except Exception as e:
+        logger.warning(f"Metadata enrichment warning for lead {lead_data.get('id')}: {e}")
+
+
+def sync_all_meta_objects(db: Database) -> dict:
+    """
+    Scans all leads and connections, fetching/updating details for all unique ads,
+    adsets, and campaigns stored in the database.
+    """
+    logger.info("[MetaSync] Starting full sync of Ads, AdSets, Campaigns and Insights...")
+    unique_ads = [a for a in db.leads.distinct("ad_id") if a]
+    unique_adsets = [s for s in db.leads.distinct("adset_id") if s]
+    unique_campaigns = [c for c in db.leads.distinct("campaign_id") if c]
+
+    ads_count = 0
+    insights_count = 0
+    adsets_count = 0
+    campaigns_count = 0
+
+    for ad_id in unique_ads:
+        lead_doc = db.leads.find_one({"ad_id": ad_id})
+        page_id = lead_doc.get("page_id") if lead_doc else None
+        if fetch_ad_details(str(ad_id), db, page_id=page_id):
+            ads_count += 1
+        if fetch_object_insights(str(ad_id), db, object_type="ad", page_id=page_id):
+            insights_count += 1
+
+    for adset_id in unique_adsets:
+        lead_doc = db.leads.find_one({"adset_id": adset_id})
+        page_id = lead_doc.get("page_id") if lead_doc else None
+        if fetch_adset_details(str(adset_id), db, page_id=page_id):
+            adsets_count += 1
+
+    for campaign_id in unique_campaigns:
+        lead_doc = db.leads.find_one({"campaign_id": campaign_id})
+        page_id = lead_doc.get("page_id") if lead_doc else None
+        if fetch_campaign_details(str(campaign_id), db, page_id=page_id):
+            campaigns_count += 1
+        fetch_object_insights(str(campaign_id), db, object_type="campaign", page_id=page_id)
+
+    logger.info(f"[MetaSync] Sync completed. ads={ads_count}, insights={insights_count}, adsets={adsets_count}, campaigns={campaigns_count}")
+    return {
+        "ads_synced": ads_count,
+        "insights_synced": insights_count,
+        "adsets_synced": adsets_count,
+        "campaigns_synced": campaigns_count,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 2. Find the correct instance mapping
 # ---------------------------------------------------------------------------
+
 
 def find_mapping(db: Database, form_id: Optional[str], page_id: Optional[str]) -> Optional[InstanceMapping]:
     """
@@ -268,6 +626,13 @@ def process_lead_event(db: Database, lead_gen_id: str, form_id: Optional[str], p
         return
 
     forward_lead(db, lead, mapping)
+
+    # 5. Enrich Ad, Campaign, and Insight metadata asynchronously / safely
+    try:
+        enrich_lead_metadata(db, lead_data)
+    except Exception as e:
+        logger.warning(f"Enrichment exception for lead {lead_gen_id}: {e}")
+
 
 
 # ---------------------------------------------------------------------------

@@ -81,6 +81,12 @@ def _ensure_indexes(db: Database):
     db.instance_mappings.create_index("form_id", sparse=True, background=True)
     db.instance_mappings.create_index("page_id", sparse=True, background=True)
     db.meta_connections.create_index("page_id", unique=True, background=True)
+    db.ads.create_index("ad_id", unique=True, background=True)
+    db.adsets.create_index("adset_id", unique=True, background=True)
+    db.campaigns.create_index("campaign_id", unique=True, background=True)
+    db.insights.create_index([("object_id", 1), ("date_preset", 1)], background=True)
+    db.ad_accounts.create_index("account_id", unique=True, background=True)
+
 
 
 # Create indexes on startup
@@ -751,6 +757,10 @@ async def api_get_lead(lead_id: str, db: Database = Depends(get_db)):
     if not doc:
         raise HTTPException(status_code=404, detail="Lead não encontrado.")
     lead = models.Lead(doc)
+    # Fetch enriched metadata if available in Mongo
+    ad_doc = db.ads.find_one({"ad_id": lead.ad_id}) if lead.ad_id else None
+    insight_doc = db.insights.find_one({"object_id": lead.ad_id}) if lead.ad_id else None
+
     return {
         "id": lead.id,
         "lead_id": lead.lead_id,
@@ -769,6 +779,255 @@ async def api_get_lead(lead_id: str, db: Database = Depends(get_db)):
         "error_message": lead.error_message,
         "fields": lead.get_fields(),
         "raw_payload": doc.get("raw_payload"),
+        "ad_details": ad_doc if ad_doc else None,
+        "ad_insights": insight_doc if insight_doc else None,
         "created_at": lead.created_at.isoformat() if lead.created_at else None,
         "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Dashboard — Ads & Insights
+# ---------------------------------------------------------------------------
+
+@app.get("/ads", response_class=HTMLResponse, tags=["Dashboard"])
+async def dashboard_ads(
+    request: Request,
+    db: Database = Depends(get_db),
+    page: int = Query(1, ge=1),
+    search: str = Query(""),
+):
+    """Dashboard page for listing ads, creative previews, and metrics."""
+    per_page = 20
+    query_filter = {}
+    if search:
+        query_filter["$or"] = [
+            {"ad_id": {"$regex": search, "$options": "i"}},
+            {"ad_name": {"$regex": search, "$options": "i"}},
+            {"campaign_id": {"$regex": search, "$options": "i"}},
+        ]
+
+    total = db.ads.count_documents(query_filter)
+    raw_ads = list(
+        db.ads.find(query_filter)
+        .sort("updated_at", -1)
+        .skip((page - 1) * per_page)
+        .limit(per_page)
+    )
+
+    ads_display = []
+    for doc in raw_ads:
+        ad = models.AdDetail(doc)
+        insight_doc = db.insights.find_one({"object_id": ad.ad_id, "date_preset": "maximum"})
+        if not insight_doc:
+            insight_doc = db.insights.find_one({"object_id": ad.ad_id})
+        insight = models.AdInsight(insight_doc) if insight_doc else None
+        leads_count = db.leads.count_documents({"ad_id": ad.ad_id})
+
+        ads_display.append({
+            "ad": ad,
+            "insight": insight,
+            "leads_count": leads_count,
+        })
+
+    sync_result = None
+    synced_param = request.query_params.get("sync_ads")
+    if synced_param is not None:
+        sync_result = {
+            "ads_synced": int(synced_param),
+            "insights_synced": int(request.query_params.get("sync_insights", 0)),
+            "campaigns_synced": int(request.query_params.get("sync_campaigns", 0)),
+        }
+
+    return templates.TemplateResponse("ads.html", {
+        "request": request,
+        "ads": ads_display,
+        "page": page,
+        "total": total,
+        "per_page": per_page,
+        "search": search,
+        "total_pages": max(1, (total + per_page - 1) // per_page),
+        "sync_result": sync_result,
+    })
+
+
+@app.post("/admin/sync-ads", tags=["Dashboard"])
+async def manual_sync_ads(db: Database = Depends(get_db)):
+    """Manually triggers full Meta Ads & Insights synchronization."""
+    try:
+        results = await asyncio.to_thread(services.sync_all_meta_objects, db)
+    except Exception as e:
+        logger.error(f"Manual ads sync error: {e}")
+        results = {"ads_synced": 0, "insights_synced": 0, "campaigns_synced": 0}
+
+    redirect_url = (
+        f"/ads?sync_ads={results.get('ads_synced', 0)}"
+        f"&sync_insights={results.get('insights_synced', 0)}"
+        f"&sync_campaigns={results.get('campaigns_synced', 0)}"
+    )
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+# ---------------------------------------------------------------------------
+# REST API (Ads, Campaigns, Insights, AdAccounts)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/ads", tags=["API"])
+async def api_list_ads(
+    db: Database = Depends(get_db),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0),
+):
+    """REST API to list all cached Ads with their creatives and insights."""
+    total = db.ads.count_documents({})
+    raw_ads = list(
+        db.ads.find()
+        .sort("updated_at", -1)
+        .skip(offset)
+        .limit(limit)
+    )
+
+    results = []
+    for doc in raw_ads:
+        ad = models.AdDetail(doc)
+        insight_doc = db.insights.find_one({"object_id": ad.ad_id})
+        results.append({
+            "ad_id": ad.ad_id,
+            "ad_name": ad.ad_name,
+            "status": ad.status,
+            "effective_status": ad.effective_status,
+            "adset_id": ad.adset_id,
+            "campaign_id": ad.campaign_id,
+            "creative": {
+                "id": ad.creative_id,
+                "title": ad.creative_title,
+                "body": ad.creative_body,
+                "image_url": ad.creative_image_url,
+                "thumbnail_url": ad.creative_thumbnail_url,
+                "call_to_action": ad.call_to_action,
+            },
+            "insights": {
+                "spend": insight_doc.get("spend", 0.0) if insight_doc else 0.0,
+                "impressions": insight_doc.get("impressions", 0) if insight_doc else 0,
+                "clicks": insight_doc.get("clicks", 0) if insight_doc else 0,
+                "reach": insight_doc.get("reach", 0) if insight_doc else 0,
+                "cpc": insight_doc.get("cpc", 0.0) if insight_doc else 0.0,
+                "ctr": insight_doc.get("ctr", 0.0) if insight_doc else 0.0,
+                "conversions": insight_doc.get("conversions", 0) if insight_doc else 0,
+            } if insight_doc else None,
+            "updated_at": ad.updated_at.isoformat() if ad.updated_at else None,
+        })
+
+    return {"total": total, "results": results}
+
+
+@app.get("/api/ads/{ad_id}", tags=["API"])
+async def api_get_ad(ad_id: str, db: Database = Depends(get_db)):
+    """Returns detailed information and creative data for a specific ad_id."""
+    doc = db.ads.find_one({"ad_id": ad_id})
+    if not doc:
+        # Try fetching live from Meta
+        doc = services.fetch_ad_details(ad_id, db)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Anúncio não encontrado.")
+
+    ad = models.AdDetail(doc)
+    insight_doc = db.insights.find_one({"object_id": ad.ad_id})
+    leads_count = db.leads.count_documents({"ad_id": ad.ad_id})
+
+    return {
+        "ad_id": ad.ad_id,
+        "ad_name": ad.ad_name,
+        "status": ad.status,
+        "effective_status": ad.effective_status,
+        "adset_id": ad.adset_id,
+        "campaign_id": ad.campaign_id,
+        "creative": {
+            "id": ad.creative_id,
+            "title": ad.creative_title,
+            "body": ad.creative_body,
+            "image_url": ad.creative_image_url,
+            "thumbnail_url": ad.creative_thumbnail_url,
+            "call_to_action": ad.call_to_action,
+        },
+        "leads_captured": leads_count,
+        "insights": insight_doc if insight_doc else None,
+        "updated_at": ad.updated_at.isoformat() if ad.updated_at else None,
+    }
+
+
+@app.get("/api/ads/{ad_id}/insights", tags=["API"])
+async def api_get_ad_insights(
+    ad_id: str,
+    date_preset: str = Query("maximum"),
+    db: Database = Depends(get_db),
+):
+    """Fetches performance insights (spend, clicks, impressions, conversions) for an ad."""
+    insight_doc = db.insights.find_one({"object_id": ad_id, "date_preset": date_preset})
+    if not insight_doc:
+        insight_doc = services.fetch_object_insights(ad_id, db, object_type="ad", date_preset=date_preset)
+    if not insight_doc:
+        raise HTTPException(status_code=404, detail="Métricas de anúncios não encontradas.")
+    return {
+        "object_id": insight_doc.get("object_id"),
+        "object_type": insight_doc.get("object_type"),
+        "spend": insight_doc.get("spend", 0.0),
+        "impressions": insight_doc.get("impressions", 0),
+        "clicks": insight_doc.get("clicks", 0),
+        "reach": insight_doc.get("reach", 0),
+        "frequency": insight_doc.get("frequency", 0.0),
+        "cpc": insight_doc.get("cpc", 0.0),
+        "cpm": insight_doc.get("cpm", 0.0),
+        "ctr": insight_doc.get("ctr", 0.0),
+        "conversions": insight_doc.get("conversions", 0),
+        "date_preset": insight_doc.get("date_preset"),
+        "date_start": insight_doc.get("date_start"),
+        "date_stop": insight_doc.get("date_stop"),
+    }
+
+
+@app.get("/api/campaigns/{campaign_id}", tags=["API"])
+async def api_get_campaign(campaign_id: str, db: Database = Depends(get_db)):
+    """Returns details and metrics for a campaign."""
+    doc = db.campaigns.find_one({"campaign_id": campaign_id})
+    if not doc:
+        doc = services.fetch_campaign_details(campaign_id, db)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Campanha não encontrada.")
+
+    campaign = models.CampaignDetail(doc)
+    insight_doc = db.insights.find_one({"object_id": campaign_id})
+    leads_count = db.leads.count_documents({"campaign_id": campaign_id})
+
+    return {
+        "campaign_id": campaign.campaign_id,
+        "campaign_name": campaign.campaign_name,
+        "status": campaign.status,
+        "objective": campaign.objective,
+        "daily_budget": campaign.daily_budget,
+        "lifetime_budget": campaign.lifetime_budget,
+        "buying_type": campaign.buying_type,
+        "leads_captured": leads_count,
+        "insights": insight_doc if insight_doc else None,
+        "updated_at": campaign.updated_at.isoformat() if campaign.updated_at else None,
+    }
+
+
+@app.get("/api/adaccounts", tags=["API"])
+async def api_list_ad_accounts(db: Database = Depends(get_db)):
+    """Lists cached Ad Accounts."""
+    accounts = list(db.ad_accounts.find().sort("name", 1))
+    return {
+        "total": len(accounts),
+        "accounts": [
+            {
+                "account_id": doc.get("account_id"),
+                "name": doc.get("name"),
+                "account_status": doc.get("account_status"),
+                "currency": doc.get("currency"),
+                "timezone_name": doc.get("timezone_name"),
+            }
+            for doc in accounts
+        ]
+    }
+
