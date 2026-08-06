@@ -796,8 +796,9 @@ async def dashboard_ads(
     db: Database = Depends(get_db),
     page: int = Query(1, ge=1),
     search: str = Query(""),
+    page_filter: str = Query(""),
 ):
-    """Dashboard page for listing ads, creative previews, and metrics."""
+    """Dashboard page for listing ads grouped by Page (client/business)."""
     per_page = 20
     query_filter = {}
     if search:
@@ -806,16 +807,29 @@ async def dashboard_ads(
             {"ad_name": {"$regex": search, "$options": "i"}},
             {"campaign_id": {"$regex": search, "$options": "i"}},
         ]
+    if page_filter:
+        query_filter["page_id"] = page_filter
+
+    # Build a lookup map: page_id -> page_name (from meta_connections)
+    page_name_map: dict[str, str] = {}
+    for conn in db.meta_connections.find({}, {"page_id": 1, "page_name": 1}):
+        pid = conn.get("page_id")
+        pname = conn.get("page_name") or pid or "Desconhecido"
+        if pid:
+            page_name_map[pid] = pname
 
     total = db.ads.count_documents(query_filter)
     raw_ads = list(
         db.ads.find(query_filter)
-        .sort("updated_at", -1)
+        .sort([("page_id", 1), ("updated_at", -1)])
         .skip((page - 1) * per_page)
         .limit(per_page)
     )
 
-    ads_display = []
+    # Group ads by page_id preserving order
+    from collections import defaultdict
+    groups: dict[str, dict] = {}  # page_id -> {page_name, ads[], totals}
+
     for doc in raw_ads:
         ad = models.AdDetail(doc)
         insight_doc = db.insights.find_one({"object_id": ad.ad_id, "date_preset": "maximum"})
@@ -824,7 +838,6 @@ async def dashboard_ads(
         insight = models.AdInsight(insight_doc) if insight_doc else None
         leads_count = db.leads.count_documents({"ad_id": ad.ad_id})
 
-        # Serialize to plain JSON-serializable dicts so Jinja2 tojson filter works
         ad_dict = {
             "ad_id": ad.ad_id,
             "ad_name": ad.ad_name,
@@ -838,6 +851,7 @@ async def dashboard_ads(
             "creative_image_url": ad.creative_image_url,
             "creative_thumbnail_url": ad.creative_thumbnail_url,
             "call_to_action": ad.call_to_action,
+            "page_id": ad.page_id,
         }
         insight_dict = None
         if insight:
@@ -856,11 +870,30 @@ async def dashboard_ads(
                 "date_stop": insight.date_stop,
             }
 
-        ads_display.append({
+        pid = ad.page_id or "__unknown__"
+        if pid not in groups:
+            groups[pid] = {
+                "page_id": pid,
+                "page_name": page_name_map.get(pid, pid if pid != "__unknown__" else "Sem Página"),
+                "ads": [],
+                "total_leads": 0,
+                "total_spend": 0.0,
+            }
+
+        groups[pid]["ads"].append({
             "ad": ad_dict,
             "insight": insight_dict,
             "leads_count": leads_count,
         })
+        groups[pid]["total_leads"] += leads_count
+        if insight_dict:
+            groups[pid]["total_spend"] += insight_dict["spend"]
+
+    # All available pages (for filter dropdown)
+    all_pages = [
+        {"page_id": pid, "page_name": name}
+        for pid, name in sorted(page_name_map.items(), key=lambda x: x[1])
+    ]
 
     sync_result = None
     synced_param = request.query_params.get("sync_ads")
@@ -873,7 +906,9 @@ async def dashboard_ads(
 
     return templates.TemplateResponse("ads.html", {
         "request": request,
-        "ads": ads_display,
+        "ads_by_page": list(groups.values()),
+        "all_pages": all_pages,
+        "page_filter": page_filter,
         "page": page,
         "total": total,
         "per_page": per_page,
@@ -881,6 +916,7 @@ async def dashboard_ads(
         "total_pages": max(1, (total + per_page - 1) // per_page),
         "sync_result": sync_result,
     })
+
 
 
 @app.post("/admin/sync-ads", tags=["Dashboard"])
