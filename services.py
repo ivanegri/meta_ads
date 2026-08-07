@@ -419,43 +419,124 @@ def enrich_lead_metadata(db: Database, lead_data: dict):
         logger.warning(f"Metadata enrichment warning for lead {lead_data.get('id')}: {e}")
 
 
+def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = None) -> list[dict]:
+    """
+    Fetches ALL ads directly from a Meta Ad Account (act_<ACCOUNT_ID>/ads),
+    handling pagination to retrieve all active, paused, archived, and deleted ads.
+    """
+    clean_acc_id = account_id.replace("act_", "")
+    access_token = token or _get_access_token(db)
+    if not access_token:
+        return []
+
+    url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/act_{clean_acc_id}/ads"
+    params = {
+        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,creative{id,name,title,body,image_url,thumbnail_url,call_to_action_type}",
+        "limit": 100,
+        "access_token": access_token,
+    }
+
+    fetched = []
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            while url:
+                resp = client.get(url, params=params if "params" in locals() else None)
+                resp.raise_for_status()
+                res_data = resp.json()
+                items = res_data.get("data", [])
+
+                now = datetime.utcnow()
+                for data in items:
+                    creative = data.get("creative", {})
+                    ad_id = str(data.get("id"))
+                    doc = {
+                        "ad_id": ad_id,
+                        "ad_name": data.get("name"),
+                        "status": data.get("status"),
+                        "effective_status": data.get("effective_status"),
+                        "adset_id": str(data.get("adset_id")) if data.get("adset_id") else None,
+                        "campaign_id": str(data.get("campaign_id")) if data.get("campaign_id") else None,
+                        "start_time": data.get("start_time"),
+                        "stop_time": data.get("stop_time"),
+                        "meta_created_time": data.get("created_time"),
+                        "creative_id": str(creative.get("id")) if creative.get("id") else None,
+                        "creative_title": creative.get("title") or creative.get("name"),
+                        "creative_body": creative.get("body"),
+                        "creative_image_url": creative.get("image_url"),
+                        "creative_thumbnail_url": creative.get("thumbnail_url"),
+                        "call_to_action": creative.get("call_to_action_type"),
+                        "updated_at": now,
+                    }
+                    db.ads.update_one(
+                        {"ad_id": doc["ad_id"]},
+                        {"$set": doc, "$setOnInsert": {"created_at": now}},
+                        upsert=True
+                    )
+                    fetched.append(doc)
+
+                # Pagination
+                paging = res_data.get("paging", {})
+                url = paging.get("next")
+                params = None  # next URL already contains query params
+    except Exception as e:
+        logger.error(f"Error fetching ads for account act_{clean_acc_id}: {e}")
+
+    logger.info(f"Fetched {len(fetched)} ads from account act_{clean_acc_id}")
+    return fetched
+
+
 def sync_all_meta_objects(db: Database) -> dict:
     """
-    Scans all leads and connections, fetching/updating details for all unique ads,
-    adsets, and campaigns stored in the database.
+    Scans all connected Ad Accounts, leads, and saved records, fetching/updating
+    details for ALL ads, adsets, campaigns, and insights (maximum date preset).
     """
-    logger.info("[MetaSync] Starting full sync of Ads, AdSets, Campaigns and Insights...")
-    unique_ads = [a for a in db.leads.distinct("ad_id") if a]
-    unique_adsets = [s for s in db.leads.distinct("adset_id") if s]
-    unique_campaigns = [c for c in db.leads.distinct("campaign_id") if c]
+    logger.info("[MetaSync] Starting full account-wide sync of Ads, AdSets, Campaigns and Insights...")
+
+    # 1. Fetch ads directly from registered Ad Accounts
+    account_ads = []
+    ad_accounts = list(db.ad_accounts.find())
+    user_token = _get_access_token(db)
+    for acc in ad_accounts:
+        acc_id = acc.get("account_id")
+        if acc_id:
+            account_ads.extend(fetch_ads_for_account(acc_id, db, token=user_token))
+
+    # 2. Combine all unique ad_ids from leads, ad accounts, and existing db.ads collection
+    lead_ad_ids = set(db.leads.distinct("ad_id"))
+    db_ad_ids = set(db.ads.distinct("ad_id"))
+    account_ad_ids = {a["ad_id"] for a in account_ads if a.get("ad_id")}
+    all_ad_ids = [a for a in (lead_ad_ids | db_ad_ids | account_ad_ids) if a]
+
+    unique_adsets = list(set([s for s in db.leads.distinct("adset_id") + db.ads.distinct("adset_id") if s]))
+    unique_campaigns = list(set([c for c in db.leads.distinct("campaign_id") + db.ads.distinct("campaign_id") if c]))
 
     ads_count = 0
     insights_count = 0
     adsets_count = 0
     campaigns_count = 0
 
-    for ad_id in unique_ads:
-        lead_doc = db.leads.find_one({"ad_id": ad_id})
-        page_id = lead_doc.get("page_id") if lead_doc else None
+    for ad_id in all_ad_ids:
+        ad_doc = db.ads.find_one({"ad_id": ad_id}) or db.leads.find_one({"ad_id": ad_id})
+        page_id = ad_doc.get("page_id") if ad_doc else None
         if fetch_ad_details(str(ad_id), db, page_id=page_id):
             ads_count += 1
-        if fetch_object_insights(str(ad_id), db, object_type="ad", page_id=page_id):
+        if fetch_object_insights(str(ad_id), db, object_type="ad", date_preset="maximum", page_id=page_id):
             insights_count += 1
 
     for adset_id in unique_adsets:
-        lead_doc = db.leads.find_one({"adset_id": adset_id})
-        page_id = lead_doc.get("page_id") if lead_doc else None
+        doc = db.ads.find_one({"adset_id": adset_id}) or db.leads.find_one({"adset_id": adset_id})
+        page_id = doc.get("page_id") if doc else None
         if fetch_adset_details(str(adset_id), db, page_id=page_id):
             adsets_count += 1
 
     for campaign_id in unique_campaigns:
-        lead_doc = db.leads.find_one({"campaign_id": campaign_id})
-        page_id = lead_doc.get("page_id") if lead_doc else None
+        doc = db.ads.find_one({"campaign_id": campaign_id}) or db.leads.find_one({"campaign_id": campaign_id})
+        page_id = doc.get("page_id") if doc else None
         if fetch_campaign_details(str(campaign_id), db, page_id=page_id):
             campaigns_count += 1
-        fetch_object_insights(str(campaign_id), db, object_type="campaign", page_id=page_id)
+        fetch_object_insights(str(campaign_id), db, object_type="campaign", date_preset="maximum", page_id=page_id)
 
-    logger.info(f"[MetaSync] Sync completed. ads={ads_count}, insights={insights_count}, adsets={adsets_count}, campaigns={campaigns_count}")
+    logger.info(f"[MetaSync] Full sync completed. ads={ads_count}, insights={insights_count}, adsets={adsets_count}, campaigns={campaigns_count}")
     return {
         "ads_synced": ads_count,
         "insights_synced": insights_count,
