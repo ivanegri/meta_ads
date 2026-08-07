@@ -424,14 +424,19 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
     Fetches ALL ads directly from a Meta Ad Account (act_<ACCOUNT_ID>/ads),
     handling pagination to retrieve all active, paused, archived, and deleted ads.
     """
-    clean_acc_id = account_id.replace("act_", "")
+    clean_acc_id = str(account_id).replace("act_", "")
     access_token = token or _get_access_token(db)
+    if not access_token:
+        # Try fetching token from active connections
+        conn = db.meta_connections.find_one({"active": True})
+        if conn:
+            access_token = conn.get("user_access_token") or conn.get("page_access_token")
     if not access_token:
         return []
 
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/act_{clean_acc_id}/ads"
     params = {
-        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,creative{id,name,title,body,image_url,thumbnail_url,call_to_action_type}",
+        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,creative{id,name,title,body,image_url,thumbnail_url,call_to_action_type,page_id}",
         "limit": 100,
         "access_token": access_token,
     }
@@ -439,8 +444,10 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
     fetched = []
     try:
         with httpx.Client(timeout=30.0) as client:
-            while url:
-                resp = client.get(url, params=params if "params" in locals() else None)
+            curr_url = url
+            curr_params = params
+            while curr_url:
+                resp = client.get(curr_url, params=curr_params)
                 resp.raise_for_status()
                 res_data = resp.json()
                 items = res_data.get("data", [])
@@ -449,13 +456,16 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
                 for data in items:
                     creative = data.get("creative", {})
                     ad_id = str(data.get("id"))
+                    page_id = creative.get("page_id")
                     doc = {
                         "ad_id": ad_id,
+                        "account_id": clean_acc_id,
                         "ad_name": data.get("name"),
                         "status": data.get("status"),
                         "effective_status": data.get("effective_status"),
                         "adset_id": str(data.get("adset_id")) if data.get("adset_id") else None,
                         "campaign_id": str(data.get("campaign_id")) if data.get("campaign_id") else None,
+                        "page_id": str(page_id) if page_id else None,
                         "start_time": data.get("start_time"),
                         "stop_time": data.get("stop_time"),
                         "meta_created_time": data.get("created_time"),
@@ -467,6 +477,12 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
                         "call_to_action": creative.get("call_to_action_type"),
                         "updated_at": now,
                     }
+                    # Keep existing page_id if not present in creative
+                    if not doc["page_id"]:
+                        existing = db.ads.find_one({"ad_id": ad_id})
+                        if existing and existing.get("page_id"):
+                            doc["page_id"] = existing.get("page_id")
+
                     db.ads.update_one(
                         {"ad_id": doc["ad_id"]},
                         {"$set": doc, "$setOnInsert": {"created_at": now}},
@@ -476,8 +492,8 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
 
                 # Pagination
                 paging = res_data.get("paging", {})
-                url = paging.get("next")
-                params = None  # next URL already contains query params
+                curr_url = paging.get("next")
+                curr_params = None  # next URL already contains query params
     except Exception as e:
         logger.error(f"Error fetching ads for account act_{clean_acc_id}: {e}")
 
@@ -492,14 +508,22 @@ def sync_all_meta_objects(db: Database) -> dict:
     """
     logger.info("[MetaSync] Starting full account-wide sync of Ads, AdSets, Campaigns and Insights...")
 
+    # 0. Refresh Ad Accounts list from all connected tokens
+    for conn in db.meta_connections.find({"active": True}):
+        tok = conn.get("user_access_token") or conn.get("page_access_token")
+        if tok:
+            try:
+                fetch_user_ad_accounts(tok, db)
+            except Exception as e:
+                logger.warning(f"Failed auto-refreshing ad accounts for connection {conn.get('page_id')}: {e}")
+
     # 1. Fetch ads directly from registered Ad Accounts
     account_ads = []
     ad_accounts = list(db.ad_accounts.find())
-    user_token = _get_access_token(db)
     for acc in ad_accounts:
         acc_id = acc.get("account_id")
         if acc_id:
-            account_ads.extend(fetch_ads_for_account(acc_id, db, token=user_token))
+            account_ads.extend(fetch_ads_for_account(acc_id, db))
 
     # 2. Combine all unique ad_ids from leads, ad accounts, and existing db.ads collection
     lead_ad_ids = set(db.leads.distinct("ad_id"))
