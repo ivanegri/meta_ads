@@ -102,7 +102,7 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
         return None
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{ad_id}"
     params = {
-        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url}",
+        "fields": "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url}",
         "access_token": access_token,
     }
 
@@ -127,8 +127,6 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
                 "effective_status": data.get("effective_status"),
                 "adset_id": str(data.get("adset_id")) if data.get("adset_id") else None,
                 "campaign_id": str(data.get("campaign_id")) if data.get("campaign_id") else None,
-                "start_time": data.get("start_time"),       # ISO-8601 string from Meta
-                "stop_time": data.get("stop_time"),         # None when open-ended
                 "meta_created_time": data.get("created_time"),
                 "creative_id": str(creative.get("id")) if creative.get("id") else None,
                 "creative_title": creative.get("title") or creative.get("name"),
@@ -441,7 +439,7 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
 
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/act_{clean_acc_id}/ads"
     params = {
-        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,creative{id,name,title,body,image_url,thumbnail_url,page_id}",
+        "fields": "id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url}",
         "limit": 100,
         "access_token": access_token,
     }
@@ -461,7 +459,6 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
                 for data in items:
                     creative = data.get("creative", {})
                     ad_id = str(data.get("id"))
-                    page_id = creative.get("page_id")
                     cta = None
                     if isinstance(creative.get("call_to_action"), dict):
                         cta = creative.get("call_to_action", {}).get("type")
@@ -474,9 +471,6 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
                         "effective_status": data.get("effective_status"),
                         "adset_id": str(data.get("adset_id")) if data.get("adset_id") else None,
                         "campaign_id": str(data.get("campaign_id")) if data.get("campaign_id") else None,
-                        "page_id": str(page_id) if page_id else None,
-                        "start_time": data.get("start_time"),
-                        "stop_time": data.get("stop_time"),
                         "meta_created_time": data.get("created_time"),
                         "creative_id": str(creative.get("id")) if creative.get("id") else None,
                         "creative_title": creative.get("title") or creative.get("name"),
@@ -484,13 +478,13 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
                         "creative_image_url": creative.get("image_url"),
                         "creative_thumbnail_url": creative.get("thumbnail_url"),
                         "call_to_action": cta,
+                        "page_id": None,
                         "updated_at": now,
                     }
-                    # Keep existing page_id if not present in creative
-                    if not doc["page_id"]:
-                        existing = db.ads.find_one({"ad_id": ad_id})
-                        if existing and existing.get("page_id"):
-                            doc["page_id"] = existing.get("page_id")
+                    # Keep existing page_id if not present
+                    existing = db.ads.find_one({"ad_id": ad_id})
+                    if existing and existing.get("page_id"):
+                        doc["page_id"] = existing.get("page_id")
 
                     db.ads.update_one(
                         {"ad_id": doc["ad_id"]},

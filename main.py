@@ -810,20 +810,30 @@ async def dashboard_ads(
             {"campaign_id": {"$regex": search, "$options": "i"}},
         ]
     if page_filter:
-        query_filter["page_id"] = page_filter
+        clean_pfilter = page_filter.replace("act_", "")
+        query_filter["$or"] = [
+            {"page_id": page_filter},
+            {"account_id": clean_pfilter},
+        ]
     if status_filter:
         query_filter["$or"] = [
             {"status": status_filter},
             {"effective_status": status_filter},
         ]
 
-    # Pre-cache pages, campaigns, and adsets for fast lookup
+    # Pre-cache pages, ad accounts, campaigns, and adsets for fast lookup
     page_name_map: dict[str, str] = {}
     for conn in db.meta_connections.find({}, {"page_id": 1, "page_name": 1}):
         pid = conn.get("page_id")
         pname = conn.get("page_name") or pid or "Desconhecido"
         if pid:
             page_name_map[pid] = pname
+
+    for acc in db.ad_accounts.find({}, {"account_id": 1, "name": 1}):
+        acc_id = str(acc.get("account_id"))
+        acc_name = acc.get("name")
+        if acc_id and acc_name and acc_id not in page_name_map:
+            page_name_map[acc_id] = f"{acc_name} ({acc_id})"
 
     campaigns_map: dict[str, dict] = {}
     for cdoc in db.campaigns.find():
@@ -934,9 +944,9 @@ async def dashboard_ads(
             g_name = f"Público / Conjunto: {adset_info['name']}"
             g_sub = f"Targeting: {adset_info['targeting']['summary']}"
         else: # "page"
-            g_key = ad.page_id or "__unknown__"
-            g_name = page_name_map.get(g_key, g_key if g_key != "__unknown__" else "Sem Página")
-            g_sub = f"Page ID: {g_key}"
+            g_key = ad.page_id or doc.get("account_id") or "__unknown__"
+            g_name = page_name_map.get(g_key, f"Conta/Página {g_key}" if g_key != "__unknown__" else "Sem Página/Conta")
+            g_sub = f"ID: {g_key}"
 
         if g_key not in groups:
             groups[g_key] = {
