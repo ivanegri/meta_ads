@@ -343,16 +343,46 @@
   {% endfor %}
 
   <!-- PAGINATION -->
-  {% if total_pages > 1 %}
-  <div class="pagination">
-    {% if page > 1 %}<a href="/ads?page={{ page - 1 }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&group_by={{ group_by }}">&laquo;</a>{% endif %}
-    {% for p in range(1, total_pages + 1) %}
-      <a href="/ads?page={{ p }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&group_by={{ group_by }}"
-        class="{% if p == page %}active{% endif %}">{{ p }}</a>
-    {% endfor %}
-    {% if page < total_pages %}<a href="/ads?page={{ page + 1 }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&group_by={{ group_by }}">&raquo;</a>{% endif %}
+  <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; background: var(--bg-card); padding: 14px 20px; border-radius: var(--radius-md); border: 1px solid var(--border);">
+    <div style="font-size: 13px; color: var(--text-muted);">
+      Exibindo <strong>{{ ((page - 1) * per_page) + 1 }}</strong> – <strong>{% if page * per_page < total %}{{ page * per_page }}{% else %}{{ total }}{% endif %}</strong> de <strong>{{ total }}</strong> anúncios
+    </div>
+
+    {% if total_pages > 1 %}
+    <div class="pagination" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+      {% if page > 1 %}
+        <a href="/ads?page=1&per_page={{ per_page }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&start_date={{ start_date }}&end_date={{ end_date }}&group_by={{ group_by }}" class="btn btn-ghost btn-sm" title="Primeira Página">««</a>
+        <a href="/ads?page={{ page - 1 }}&per_page={{ per_page }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&start_date={{ start_date }}&end_date={{ end_date }}&group_by={{ group_by }}" class="btn btn-ghost btn-sm" title="Página Anterior">« Anterior</a>
+      {% endif %}
+
+      {% for p in pagination_window %}
+        {% if p is none %}
+          <span style="padding: 4px 8px; color: var(--text-muted); font-weight: bold;">...</span>
+        {% elif p == page %}
+          <span class="btn btn-primary btn-sm" style="font-weight: bold; background: var(--accent); color: white; border-color: var(--accent);">{{ p }}</span>
+        {% else %}
+          <a href="/ads?page={{ p }}&per_page={{ per_page }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&start_date={{ start_date }}&end_date={{ end_date }}&group_by={{ group_by }}" class="btn btn-ghost btn-sm">{{ p }}</a>
+        {% endif %}
+      {% endfor %}
+
+      {% if page < total_pages %}
+        <a href="/ads?page={{ page + 1 }}&per_page={{ per_page }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&start_date={{ start_date }}&end_date={{ end_date }}&group_by={{ group_by }}" class="btn btn-ghost btn-sm" title="Próxima Página">Próxima »</a>
+        <a href="/ads?page={{ total_pages }}&per_page={{ per_page }}&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&start_date={{ start_date }}&end_date={{ end_date }}&group_by={{ group_by }}" class="btn btn-ghost btn-sm" title="Última Página">»»</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- PER PAGE SELECTOR -->
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 12px; color: var(--text-muted);">Anúncios por página:</span>
+      <select class="filter-select" style="padding: 4px 10px; font-size: 12px;" onchange="location.href='/ads?page=1&per_page=' + this.value + '&search={{ search }}&page_filter={{ page_filter }}&status_filter={{ status_filter }}&start_date={{ start_date }}&end_date={{ end_date }}&group_by={{ group_by }}'">
+        <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+        <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
+      </select>
+    </div>
   </div>
-  {% endif %}
 
 {% else %}
 <div class="card empty-state">

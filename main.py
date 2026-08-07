@@ -790,11 +790,34 @@ async def api_get_lead(lead_id: str, db: Database = Depends(get_db)):
 # Dashboard — Ads & Insights
 # ---------------------------------------------------------------------------
 
+def get_pagination_window(current_page: int, total_pages: int) -> list:
+    """Generates a smart pagination list with ellipses for large page counts."""
+    if total_pages <= 7:
+        return list(range(1, total_pages + 1))
+
+    pages = [1]
+    if current_page > 4:
+        pages.append(None)
+
+    start_p = max(2, current_page - 2)
+    end_p = min(total_pages - 1, current_page + 2)
+
+    for p in range(start_p, end_p + 1):
+        pages.append(p)
+
+    if current_page < total_pages - 3:
+        pages.append(None)
+
+    pages.append(total_pages)
+    return pages
+
+
 @app.get("/ads", response_class=HTMLResponse, tags=["Dashboard"])
 async def dashboard_ads(
     request: Request,
     db: Database = Depends(get_db),
     page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=5, le=500),
     search: str = Query(""),
     page_filter: str = Query(""),
     status_filter: str = Query(""),
@@ -803,7 +826,6 @@ async def dashboard_ads(
     group_by: str = Query("page", description="Group ads by 'page', 'campaign', or 'adset'"),
 ):
     """Dashboard page for listing ads grouped by Page, Campaign, or AdSet (Público)."""
-    per_page = 20
     query_filter = {}
     if search:
         query_filter["$or"] = [
@@ -1001,6 +1023,9 @@ async def dashboard_ads(
             "campaigns_synced": int(request.query_params.get("sync_campaigns", 0)),
         }
 
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    pagination_window = get_pagination_window(page, total_pages)
+
     return templates.TemplateResponse("ads.html", {
         "request": request,
         "ads_by_page": list(groups.values()),
@@ -1014,7 +1039,8 @@ async def dashboard_ads(
         "total": total,
         "per_page": per_page,
         "search": search,
-        "total_pages": max(1, (total + per_page - 1) // per_page),
+        "total_pages": total_pages,
+        "pagination_window": pagination_window,
         "sync_result": sync_result,
         "sync_started": sync_started,
     })
