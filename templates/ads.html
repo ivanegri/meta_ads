@@ -116,6 +116,18 @@
   </div>
 </div>
 
+{% if sync_started %}
+<div class="card" style="margin-bottom: 20px; background: rgba(79,127,255,0.1); border-color: rgba(79,127,255,0.3); display: flex; align-items: center; justify-content: space-between;">
+  <div style="color: var(--accent);">
+    <strong>⚡ Sincronização iniciada em segundo plano!</strong>
+    <span style="margin-left: 10px; font-size: 13px; color: var(--text);">
+      Os anúncios e métricas de todas as contas estão sendo buscados da Meta API em background. Atualize a página em alguns instantes para ver os novos dados.
+    </span>
+  </div>
+  <a href="/ads" style="color: var(--text-muted); text-decoration: none; font-size: 18px;">&times;</a>
+</div>
+{% endif %}
+
 {% if sync_result %}
 <div class="card" style="margin-bottom: 20px; background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.3); display: flex; align-items: center; justify-content: space-between;">
   <div style="color: var(--green);">

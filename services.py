@@ -100,10 +100,9 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
     access_token = _get_access_token(db, page_id)
     if not access_token:
         return None
-
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{ad_id}"
     params = {
-        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url,call_to_action_type}",
+        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url}",
         "access_token": access_token,
     }
 
@@ -114,6 +113,12 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
             data = resp.json()
 
             creative = data.get("creative", {})
+            cta = None
+            if isinstance(creative.get("call_to_action"), dict):
+                cta = creative.get("call_to_action", {}).get("type")
+            else:
+                cta = creative.get("call_to_action") or creative.get("call_to_action_type")
+
             now = datetime.utcnow()
             doc = {
                 "ad_id": str(data.get("id", ad_id)),
@@ -130,7 +135,7 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
                 "creative_body": creative.get("body"),
                 "creative_image_url": creative.get("image_url"),
                 "creative_thumbnail_url": creative.get("thumbnail_url"),
-                "call_to_action": creative.get("call_to_action_type"),
+                "call_to_action": cta,
                 "page_id": page_id,
                 "updated_at": now,
             }
@@ -140,7 +145,7 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
                 {"$set": doc, "$setOnInsert": {"created_at": now}},
                 upsert=True
             )
-            logger.info(f"Ad details cached for ad_id={ad_id}")
+            logger.info(f"Ad details updated for ad_id={ad_id}")
             return doc
     except Exception as e:
         logger.error(f"Error fetching ad details for ad_id={ad_id}: {e}")
@@ -436,7 +441,7 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
 
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/act_{clean_acc_id}/ads"
     params = {
-        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,creative{id,name,title,body,image_url,thumbnail_url,call_to_action_type,page_id}",
+        "fields": "id,name,status,effective_status,adset_id,campaign_id,start_time,stop_time,created_time,creative{id,name,title,body,image_url,thumbnail_url,page_id}",
         "limit": 100,
         "access_token": access_token,
     }
@@ -457,6 +462,10 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
                     creative = data.get("creative", {})
                     ad_id = str(data.get("id"))
                     page_id = creative.get("page_id")
+                    cta = None
+                    if isinstance(creative.get("call_to_action"), dict):
+                        cta = creative.get("call_to_action", {}).get("type")
+
                     doc = {
                         "ad_id": ad_id,
                         "account_id": clean_acc_id,
@@ -474,7 +483,7 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
                         "creative_body": creative.get("body"),
                         "creative_image_url": creative.get("image_url"),
                         "creative_thumbnail_url": creative.get("thumbnail_url"),
-                        "call_to_action": creative.get("call_to_action_type"),
+                        "call_to_action": cta,
                         "updated_at": now,
                     }
                     # Keep existing page_id if not present in creative

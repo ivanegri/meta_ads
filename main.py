@@ -13,7 +13,7 @@ from typing import Optional
 
 from bson import ObjectId
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Form
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from pymongo.database import Database
@@ -965,6 +965,7 @@ async def dashboard_ads(
         for pid, name in sorted(page_name_map.items(), key=lambda x: x[1])
     ]
 
+    sync_started = bool(request.query_params.get("sync_started"))
     sync_result = None
     synced_param = request.query_params.get("sync_ads")
     if synced_param is not None:
@@ -987,25 +988,16 @@ async def dashboard_ads(
         "search": search,
         "total_pages": max(1, (total + per_page - 1) // per_page),
         "sync_result": sync_result,
+        "sync_started": sync_started,
     })
 
 
 
 @app.post("/admin/sync-ads", tags=["Dashboard"])
-async def manual_sync_ads(db: Database = Depends(get_db)):
-    """Manually triggers full Meta Ads & Insights synchronization."""
-    try:
-        results = await asyncio.to_thread(services.sync_all_meta_objects, db)
-    except Exception as e:
-        logger.error(f"Manual ads sync error: {e}")
-        results = {"ads_synced": 0, "insights_synced": 0, "campaigns_synced": 0}
-
-    redirect_url = (
-        f"/ads?sync_ads={results.get('ads_synced', 0)}"
-        f"&sync_insights={results.get('insights_synced', 0)}"
-        f"&sync_campaigns={results.get('campaigns_synced', 0)}"
-    )
-    return RedirectResponse(url=redirect_url, status_code=303)
+async def manual_sync_ads(background_tasks: BackgroundTasks, db: Database = Depends(get_db)):
+    """Manually triggers full Meta Ads & Insights synchronization in background."""
+    background_tasks.add_task(services.sync_all_meta_objects, db)
+    return RedirectResponse(url="/ads?sync_started=1", status_code=303)
 
 
 # ---------------------------------------------------------------------------
