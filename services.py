@@ -32,12 +32,19 @@ META_GRAPH_API_VERSION = "v19.0"
 
 
 def _get_access_token(db: Database, page_id: Optional[str] = None) -> Optional[str]:
-    """Helper to retrieve the page-specific token or fallback to global META_ACCESS_TOKEN."""
+    """Helper to retrieve the page/user token or fallback to any active connection token."""
     access_token = META_ACCESS_TOKEN
     if page_id:
         conn_doc = db.meta_connections.find_one({"page_id": page_id, "active": True})
-        if conn_doc and conn_doc.get("page_access_token"):
-            access_token = conn_doc.get("page_access_token")
+        if conn_doc:
+            access_token = conn_doc.get("user_access_token") or conn_doc.get("page_access_token") or access_token
+
+    if not access_token:
+        # Fallback to any active connection token
+        conn_doc = db.meta_connections.find_one({"active": True})
+        if conn_doc:
+            access_token = conn_doc.get("user_access_token") or conn_doc.get("page_access_token")
+
     return access_token if access_token else None
 
 
@@ -481,10 +488,14 @@ def fetch_ads_for_account(account_id: str, db: Database, token: Optional[str] = 
                         "page_id": None,
                         "updated_at": now,
                     }
-                    # Keep existing page_id if not present
+                    # Keep existing page_id if present, or lookup from meta_connections
                     existing = db.ads.find_one({"ad_id": ad_id})
                     if existing and existing.get("page_id"):
                         doc["page_id"] = existing.get("page_id")
+                    else:
+                        conn_match = db.meta_connections.find_one({"$or": [{"account_id": clean_acc_id}, {"page_id": clean_acc_id}]})
+                        if conn_match and conn_match.get("page_id"):
+                            doc["page_id"] = conn_match.get("page_id")
 
                     db.ads.update_one(
                         {"ad_id": doc["ad_id"]},

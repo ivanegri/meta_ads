@@ -216,7 +216,7 @@
             <span class="pstat-label">Leads</span>
           </div>
           <div class="page-stat">
-            <span class="pstat-value" style="color:var(--green);">R$ {{ "%.2f"|format(group.total_spend) }}</span>
+            <span class="pstat-value" style="color:var(--green);">{% if group.currency == 'USD' %}${% else %}R${% endif %} {{ "%.2f"|format(group.total_spend) }} <span style="font-size:10px; color:var(--text-muted);">{{ group.currency or 'BRL' }}</span></span>
             <span class="pstat-label">Gasto Total</span>
           </div>
         </div>
@@ -306,12 +306,12 @@
               <td>
                 <div><strong style="color:var(--accent2); font-size:15px;">{{ item.leads_count }}</strong> <span class="text-muted" style="font-size:11px;">leads</span></div>
                 {% if item.cpl > 0 %}
-                  <div style="font-size:11px; color:var(--yellow); font-weight:600;">CPL: R$ {{ "%.2f"|format(item.cpl) }}</div>
+                  <div style="font-size:11px; color:var(--yellow); font-weight:600;">CPL: {% if item.ad.currency == 'USD' %}${% else %}R${% endif %} {{ "%.2f"|format(item.cpl) }}</div>
                 {% endif %}
               </td>
 
               <td>
-                {% if insight %}<strong style="color:var(--green); font-size:14px;">R$ {{ "%.2f"|format(insight.spend) }}</strong>
+                {% if insight %}<strong style="color:var(--green); font-size:14px;">{% if item.ad.currency == 'USD' %}${% else %}R${% endif %} {{ "%.2f"|format(insight.spend) }}</strong>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
 
@@ -325,7 +325,7 @@
               <td>
                 {% if insight %}
                   <div><strong style="color:var(--yellow);">{{ "%.2f"|format(insight.ctr) }}%</strong> <span class="text-muted" style="font-size:11px;">CTR</span></div>
-                  <div style="font-size:11px; color:var(--text-muted);">CPC: R$ {{ "%.2f"|format(insight.cpc) }}</div>
+                  <div style="font-size:11px; color:var(--text-muted);">CPC: {% if item.ad.currency == 'USD' %}${% else %}R${% endif %} {{ "%.2f"|format(insight.cpc) }}</div>
                 {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
 

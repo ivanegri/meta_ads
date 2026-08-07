@@ -838,11 +838,14 @@ async def dashboard_ads(
         if pid:
             page_name_map[pid] = pname
 
-    for acc in db.ad_accounts.find({}, {"account_id": 1, "name": 1}):
+    account_currency_map: dict[str, str] = {}
+    for acc in db.ad_accounts.find({}, {"account_id": 1, "name": 1, "currency": 1}):
         acc_id = str(acc.get("account_id"))
         acc_name = acc.get("name")
         if acc_id and acc_name and acc_id not in page_name_map:
             page_name_map[acc_id] = f"{acc_name} ({acc_id})"
+        if acc_id:
+            account_currency_map[acc_id] = acc.get("currency", "BRL")
 
     campaigns_map: dict[str, dict] = {}
     for cdoc in db.campaigns.find():
@@ -899,10 +902,13 @@ async def dashboard_ads(
 
         spend = insight.spend if insight else 0.0
         cpl = round(spend / leads_count, 2) if leads_count > 0 else 0.0
+        currency = account_currency_map.get(doc.get("account_id"), "BRL")
 
         ad_dict = {
             "ad_id": ad.ad_id,
             "ad_name": ad.ad_name,
+            "account_id": doc.get("account_id"),
+            "currency": currency,
             "status": ad.status,
             "effective_status": ad.effective_status,
             "adset_id": ad.adset_id,
@@ -964,6 +970,7 @@ async def dashboard_ads(
                 "group_sub": g_sub,
                 "page_id": ad.page_id,
                 "page_name": page_name_map.get(ad.page_id, "Sem Página"),
+                "currency": currency,
                 "ads": [],
                 "total_leads": 0,
                 "total_spend": 0.0,
