@@ -812,6 +812,96 @@ def get_pagination_window(current_page: int, total_pages: int) -> list:
     return pages
 
 
+def build_ad_query_filter(
+    db: Optional[Database] = None,
+    search: str = "",
+    page_filter: str = "",
+    campaign_id: str = "",
+    adset_id: str = "",
+    status_filter: str = "",
+    start_date: str = "",
+    end_date: str = "",
+) -> dict:
+    """Builds a combined MongoDB query filter ensuring all active filters are joined with $and."""
+    conditions = []
+
+    if search and search.strip():
+        s_clean = search.strip()
+        conditions.append({
+            "$or": [
+                {"ad_id": {"$regex": s_clean, "$options": "i"}},
+                {"ad_name": {"$regex": s_clean, "$options": "i"}},
+                {"campaign_id": {"$regex": s_clean, "$options": "i"}},
+                {"adset_id": {"$regex": s_clean, "$options": "i"}},
+            ]
+        })
+
+    if page_filter and page_filter.strip():
+        p_val = page_filter.strip()
+        clean_pid = p_val.replace("act_", "")
+        match_ids = {p_val, clean_pid}
+
+        if db is not None:
+            conn = db.meta_connections.find_one({"$or": [{"page_id": p_val}, {"account_id": clean_pid}]})
+            p_name = conn.get("page_name") if conn else None
+
+            if not p_name:
+                acc = db.ad_accounts.find_one({"account_id": clean_pid})
+                if acc: p_name = acc.get("name")
+
+            if p_name:
+                first_word = p_name.split()[0]
+                if len(first_word) >= 3:
+                    for a in db.ad_accounts.find({"name": {"$regex": first_word, "$options": "i"}}):
+                        if a.get("account_id"): match_ids.add(str(a.get("account_id")))
+                    for c in db.meta_connections.find({"page_name": {"$regex": first_word, "$options": "i"}}):
+                        if c.get("page_id"): match_ids.add(str(c.get("page_id")))
+
+        id_list = list(match_ids)
+        conditions.append({
+            "$or": [
+                {"page_id": {"$in": id_list}},
+                {"account_id": {"$in": id_list}},
+            ]
+        })
+
+    if campaign_id and campaign_id.strip():
+        conditions.append({"campaign_id": campaign_id.strip()})
+
+    if adset_id and adset_id.strip():
+        conditions.append({"adset_id": adset_id.strip()})
+
+    if status_filter and status_filter.strip():
+        st_val = status_filter.strip().upper()
+        conditions.append({
+            "$or": [
+                {"status": st_val},
+                {"effective_status": st_val},
+            ]
+        })
+
+    if start_date or end_date:
+        date_cond = {}
+        if start_date and start_date.strip():
+            date_cond["$gte"] = start_date.strip()
+        if end_date and end_date.strip():
+            date_cond["$lte"] = end_date.strip() + "T23:59:59"
+        if date_cond:
+            conditions.append({
+                "$or": [
+                    {"meta_created_time": date_cond},
+                    {"start_time": date_cond},
+                    {"created_time": date_cond},
+                ]
+            })
+
+    if not conditions:
+        return {}
+    if len(conditions) == 1:
+        return conditions[0]
+    return {"$and": conditions}
+
+
 @app.get("/ads", response_class=HTMLResponse, tags=["Dashboard"])
 async def dashboard_ads(
     request: Request,
@@ -826,31 +916,14 @@ async def dashboard_ads(
     group_by: str = Query("page", description="Group ads by 'page', 'campaign', or 'adset'"),
 ):
     """Dashboard page for listing ads grouped by Page, Campaign, or AdSet (Público)."""
-    query_filter = {}
-    if search:
-        query_filter["$or"] = [
-            {"ad_id": {"$regex": search, "$options": "i"}},
-            {"ad_name": {"$regex": search, "$options": "i"}},
-            {"campaign_id": {"$regex": search, "$options": "i"}},
-        ]
-    if page_filter:
-        clean_pfilter = page_filter.replace("act_", "")
-        query_filter["$or"] = [
-            {"page_id": page_filter},
-            {"account_id": clean_pfilter},
-        ]
-    if status_filter:
-        query_filter["$or"] = [
-            {"status": status_filter},
-            {"effective_status": status_filter},
-        ]
-    if start_date or end_date:
-        date_cond = {}
-        if start_date:
-            date_cond["$gte"] = start_date
-        if end_date:
-            date_cond["$lte"] = end_date + "T23:59:59"
-        query_filter["meta_created_time"] = date_cond
+    query_filter = build_ad_query_filter(
+        db=db,
+        search=search,
+        page_filter=page_filter,
+        status_filter=status_filter,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
     # Pre-cache pages, ad accounts, campaigns, and adsets for fast lookup
     page_name_map: dict[str, str] = {}
@@ -1288,24 +1361,16 @@ async def api_metrics_by_page(
                 "targeting": s_obj.formatted_targeting(),
             }
 
-    # Build query
-    ad_filter: dict = {}
-    if page_id:
-        clean_pid = page_id.replace("act_", "")
-        ad_filter["$or"] = [{"page_id": page_id}, {"account_id": clean_pid}]
-    if campaign_id:
-        ad_filter["campaign_id"] = campaign_id
-    if adset_id:
-        ad_filter["adset_id"] = adset_id
-    if status:
-        ad_filter["$or"] = [{"status": status.upper()}, {"effective_status": status.upper()}]
-    if start_date or end_date:
-        date_cond = {}
-        if start_date:
-            date_cond["$gte"] = start_date
-        if end_date:
-            date_cond["$lte"] = end_date + "T23:59:59"
-        ad_filter["meta_created_time"] = date_cond
+    # Build query combining all parameters seamlessly
+    ad_filter = build_ad_query_filter(
+        db=db,
+        page_filter=page_id,
+        campaign_id=campaign_id,
+        adset_id=adset_id,
+        status_filter=status,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
     sort_key = "page_id" if group_by == "page" else ("campaign_id" if group_by == "campaign" else "adset_id")
     all_ads = list(db.ads.find(ad_filter).sort([(sort_key, 1), ("ad_name", 1)]))

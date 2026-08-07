@@ -143,6 +143,7 @@
 
 <!-- FILTERS & GROUPING -->
 <form method="GET" action="/ads" class="filters" style="margin-bottom: 24px; gap: 10px; flex-wrap: wrap;">
+  <input type="hidden" name="per_page" value="{{ per_page }}"/>
   <input type="text" name="search" value="{{ search }}" placeholder="Buscar anúncio ou campanha..." style="flex:1; min-width:200px;"/>
 
   <!-- GROUP BY -->
