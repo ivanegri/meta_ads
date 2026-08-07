@@ -798,6 +798,8 @@ async def dashboard_ads(
     search: str = Query(""),
     page_filter: str = Query(""),
     status_filter: str = Query(""),
+    start_date: str = Query(""),
+    end_date: str = Query(""),
     group_by: str = Query("page", description="Group ads by 'page', 'campaign', or 'adset'"),
 ):
     """Dashboard page for listing ads grouped by Page, Campaign, or AdSet (Público)."""
@@ -820,6 +822,13 @@ async def dashboard_ads(
             {"status": status_filter},
             {"effective_status": status_filter},
         ]
+    if start_date or end_date:
+        date_cond = {}
+        if start_date:
+            date_cond["$gte"] = start_date
+        if end_date:
+            date_cond["$lte"] = end_date + "T23:59:59"
+        query_filter["meta_created_time"] = date_cond
 
     # Pre-cache pages, ad accounts, campaigns, and adsets for fast lookup
     page_name_map: dict[str, str] = {}
@@ -991,6 +1000,8 @@ async def dashboard_ads(
         "all_pages": all_pages,
         "page_filter": page_filter,
         "status_filter": status_filter,
+        "start_date": start_date,
+        "end_date": end_date,
         "group_by": group_by,
         "page": page,
         "total": total,
@@ -1185,6 +1196,8 @@ async def api_metrics_by_page(
     campaign_id: str = Query("", description="Filter by a specific Campaign ID"),
     adset_id: str = Query("", description="Filter by a specific AdSet/Audience ID"),
     status: str = Query("", description="Filter ads by status (ACTIVE, PAUSED, ARCHIVED, DELETED...)"),
+    start_date: str = Query("", description="Filter ads created on or after YYYY-MM-DD"),
+    end_date: str = Query("", description="Filter ads created on or before YYYY-MM-DD"),
     date_preset: str = Query("maximum", description="Insights date preset (maximum, last_30d, last_7d, today...)"),
     group_by: str = Query("page", description="Group results by 'page', 'campaign', or 'adset'"),
     include_creatives: bool = Query(False, description="Include ad creative details (title, body, image_url)"),
@@ -1202,6 +1215,8 @@ async def api_metrics_by_page(
     - `campaign_id`: Filter by campaign
     - `adset_id`: Filter by audience/adset
     - `status`: Filter by status (ACTIVE, PAUSED, etc.)
+    - `start_date`: Filter ads created on or after date (YYYY-MM-DD)
+    - `end_date`: Filter ads created on or before date (YYYY-MM-DD)
     - `group_by`: Group by `page`, `campaign`, or `adset`
     - `include_creatives`: Set `true` to include ad copy and image URLs
     - `include_targeting`: Set `true` to include audience targeting (age, gender, interests, geo, custom audiences)
@@ -1212,6 +1227,12 @@ async def api_metrics_by_page(
         pid = conn.get("page_id")
         if pid:
             page_name_map[pid] = conn.get("page_name") or pid
+
+    for acc in db.ad_accounts.find({}, {"account_id": 1, "name": 1}):
+        acc_id = str(acc.get("account_id"))
+        acc_name = acc.get("name")
+        if acc_id and acc_name and acc_id not in page_name_map:
+            page_name_map[acc_id] = f"{acc_name} ({acc_id})"
 
     campaigns_map: dict[str, dict] = {}
     for cdoc in db.campaigns.find():
@@ -1237,13 +1258,21 @@ async def api_metrics_by_page(
     # Build query
     ad_filter: dict = {}
     if page_id:
-        ad_filter["page_id"] = page_id
+        clean_pid = page_id.replace("act_", "")
+        ad_filter["$or"] = [{"page_id": page_id}, {"account_id": clean_pid}]
     if campaign_id:
         ad_filter["campaign_id"] = campaign_id
     if adset_id:
         ad_filter["adset_id"] = adset_id
     if status:
         ad_filter["$or"] = [{"status": status.upper()}, {"effective_status": status.upper()}]
+    if start_date or end_date:
+        date_cond = {}
+        if start_date:
+            date_cond["$gte"] = start_date
+        if end_date:
+            date_cond["$lte"] = end_date + "T23:59:59"
+        ad_filter["meta_created_time"] = date_cond
 
     sort_key = "page_id" if group_by == "page" else ("campaign_id" if group_by == "campaign" else "adset_id")
     all_ads = list(db.ads.find(ad_filter).sort([(sort_key, 1), ("ad_name", 1)]))

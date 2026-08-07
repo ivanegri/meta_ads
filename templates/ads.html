@@ -172,8 +172,19 @@
     <option value="WITH_ISSUES"     {% if status_filter == 'WITH_ISSUES' %}selected{% endif %}>⚠️ Com Problemas</option>
   </select>
 
+  <!-- DATE FILTERS -->
+  <div style="display:flex; align-items:center; gap:6px;">
+    <span style="font-size:12px; color:var(--text-muted);">De:</span>
+    <input type="date" name="start_date" value="{{ start_date }}" class="filter-select" style="padding: 6px 10px; min-width: 130px;"/>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:6px;">
+    <span style="font-size:12px; color:var(--text-muted);">Até:</span>
+    <input type="date" name="end_date" value="{{ end_date }}" class="filter-select" style="padding: 6px 10px; min-width: 130px;"/>
+  </div>
+
   <button type="submit" class="btn btn-ghost">🔍 Filtrar</button>
-  {% if search or page_filter or status_filter or group_by != 'page' %}
+  {% if search or page_filter or status_filter or start_date or end_date or group_by != 'page' %}
     <a href="/ads" class="btn btn-ghost">Limpar</a>
   {% endif %}
 </form>
