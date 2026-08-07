@@ -136,9 +136,75 @@ class AdSetDetail:
         self.campaign_id = doc.get("campaign_id", "")
         self.daily_budget = doc.get("daily_budget")
         self.lifetime_budget = doc.get("lifetime_budget")
-        self.targeting = doc.get("targeting")
+        self.targeting = doc.get("targeting") or {}
+        self.optimization_goal = doc.get("optimization_goal")
+        self.billing_event = doc.get("billing_event")
+        self.bid_strategy = doc.get("bid_strategy")
+        self.start_time = doc.get("start_time")
+        self.end_time = doc.get("end_time")
         self.created_at = doc.get("created_at", datetime.utcnow())
         self.updated_at = doc.get("updated_at", datetime.utcnow())
+
+    def formatted_targeting(self) -> dict:
+        """Returns a human-readable summary of audience targeting specifications."""
+        t = self.targeting if isinstance(self.targeting, dict) else {}
+        parts = []
+
+        # Age & Gender
+        age_min = t.get("age_min", 18)
+        age_max = t.get("age_max", 65)
+        genders = t.get("genders", [])
+        gender_str = "Todos os gêneros"
+        if genders == [1]:
+            gender_str = "Homens"
+        elif genders == [2]:
+            gender_str = "Mulheres"
+        parts.append(f"{gender_str}, {age_min} a {age_max}+ anos")
+
+        # Geo Locations
+        geos = t.get("geo_locations", {})
+        countries = geos.get("countries", [])
+        regions = [r.get("name") or r.get("key") for r in geos.get("regions", []) if isinstance(r, dict)]
+        cities = [c.get("name") for c in geos.get("cities", []) if isinstance(c, dict)]
+        geo_parts = countries + regions + cities
+        if geo_parts:
+            parts.append(f"Localização: {', '.join(geo_parts)}")
+
+        # Interests / Flexible spec
+        flex = t.get("flexible_spec", [])
+        interests = []
+        for group in flex:
+            if isinstance(group, dict):
+                for item in group.get("interests", []) + group.get("behaviors", []) + group.get("demographics", []):
+                    if isinstance(item, dict) and item.get("name"):
+                        interests.append(item["name"])
+        if interests:
+            parts.append(f"Interesses ({len(interests)}): {', '.join(interests[:8])}" + ("..." if len(interests) > 8 else ""))
+
+        # Custom Audiences
+        custom_auds = t.get("custom_audiences", [])
+        if custom_auds:
+            names = [a.get("name") for a in custom_auds if isinstance(a, dict) and a.get("name")]
+            if names:
+                parts.append(f"Públicos Personalizados: {', '.join(names)}")
+            else:
+                parts.append(f"{len(custom_auds)} Público(s) Personalizado(s)")
+
+        # Platforms
+        platforms = t.get("publisher_platforms", [])
+        if platforms:
+            parts.append(f"Plataformas: {', '.join(platforms)}")
+
+        return {
+            "summary": " | ".join(parts) if parts else "Sem filtros de público especificados",
+            "age_min": age_min,
+            "age_max": age_max,
+            "genders": gender_str,
+            "geo_locations": geo_parts,
+            "interests": interests,
+            "publisher_platforms": platforms,
+            "raw": t,
+        }
 
     def __repr__(self):
         return f"<AdSetDetail adset_id={self.adset_id} name={self.adset_name}>"

@@ -149,7 +149,8 @@ def fetch_ad_details(ad_id: str, db: Database, page_id: Optional[str] = None) ->
 
 def fetch_adset_details(adset_id: str, db: Database, page_id: Optional[str] = None) -> Optional[dict]:
     """
-    Fetches adset details (name, status, budget, targeting) from Graph API and upserts into 'adsets'.
+    Fetches adset details (name, status, budget, targeting/audiences, optimization) from Graph API
+    and upserts into 'adsets'.
     """
     if not adset_id:
         return None
@@ -160,7 +161,7 @@ def fetch_adset_details(adset_id: str, db: Database, page_id: Optional[str] = No
 
     url = f"https://graph.facebook.com/{META_GRAPH_API_VERSION}/{adset_id}"
     params = {
-        "fields": "id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget,targeting",
+        "fields": "id,name,status,effective_status,campaign_id,daily_budget,lifetime_budget,targeting,optimization_goal,billing_event,bid_strategy,start_time,end_time",
         "access_token": access_token,
     }
 
@@ -180,6 +181,11 @@ def fetch_adset_details(adset_id: str, db: Database, page_id: Optional[str] = No
                 "daily_budget": data.get("daily_budget"),
                 "lifetime_budget": data.get("lifetime_budget"),
                 "targeting": data.get("targeting"),
+                "optimization_goal": data.get("optimization_goal"),
+                "billing_event": data.get("billing_event"),
+                "bid_strategy": data.get("bid_strategy"),
+                "start_time": data.get("start_time"),
+                "end_time": data.get("end_time"),
                 "updated_at": now,
             }
 

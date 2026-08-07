@@ -798,8 +798,9 @@ async def dashboard_ads(
     search: str = Query(""),
     page_filter: str = Query(""),
     status_filter: str = Query(""),
+    group_by: str = Query("page", description="Group ads by 'page', 'campaign', or 'adset'"),
 ):
-    """Dashboard page for listing ads grouped by Page (client/business)."""
+    """Dashboard page for listing ads grouped by Page, Campaign, or AdSet (Público)."""
     per_page = 20
     query_filter = {}
     if search:
@@ -816,7 +817,7 @@ async def dashboard_ads(
             {"effective_status": status_filter},
         ]
 
-    # Build a lookup map: page_id -> page_name (from meta_connections)
+    # Pre-cache pages, campaigns, and adsets for fast lookup
     page_name_map: dict[str, str] = {}
     for conn in db.meta_connections.find({}, {"page_id": 1, "page_name": 1}):
         pid = conn.get("page_id")
@@ -824,17 +825,38 @@ async def dashboard_ads(
         if pid:
             page_name_map[pid] = pname
 
+    campaigns_map: dict[str, dict] = {}
+    for cdoc in db.campaigns.find():
+        cid = cdoc.get("campaign_id")
+        if cid:
+            campaigns_map[cid] = {
+                "name": cdoc.get("campaign_name") or f"Campanha {cid}",
+                "status": cdoc.get("status"),
+                "objective": cdoc.get("objective"),
+            }
+
+    adsets_map: dict[str, dict] = {}
+    for sdoc in db.adsets.find():
+        sid = sdoc.get("adset_id")
+        if sid:
+            s_obj = models.AdSetDetail(sdoc)
+            adsets_map[sid] = {
+                "name": s_obj.adset_name or f"Conjunto {sid}",
+                "status": s_obj.status,
+                "targeting": s_obj.formatted_targeting(),
+                "optimization_goal": s_obj.optimization_goal,
+            }
+
     total = db.ads.count_documents(query_filter)
+    sort_field = "page_id" if group_by == "page" else ("campaign_id" if group_by == "campaign" else "adset_id")
     raw_ads = list(
         db.ads.find(query_filter)
-        .sort([("page_id", 1), ("updated_at", -1)])
+        .sort([(sort_field, 1), ("updated_at", -1)])
         .skip((page - 1) * per_page)
         .limit(per_page)
     )
 
-    # Group ads by page_id preserving order
-    from collections import defaultdict
-    groups: dict[str, dict] = {}  # page_id -> {page_name, ads[], totals}
+    groups: dict[str, dict] = {}
 
     for doc in raw_ads:
         ad = models.AdDetail(doc)
@@ -844,13 +866,33 @@ async def dashboard_ads(
         insight = models.AdInsight(insight_doc) if insight_doc else None
         leads_count = db.leads.count_documents({"ad_id": ad.ad_id})
 
+        campaign_info = campaigns_map.get(ad.campaign_id, {
+            "name": ad.campaign_id or "Sem Campanha",
+            "status": None,
+            "objective": None
+        })
+        adset_info = adsets_map.get(ad.adset_id, {
+            "name": ad.adset_id or "Sem Conjunto",
+            "status": None,
+            "targeting": {"summary": "Sem dados de público", "raw": {}},
+            "optimization_goal": None
+        })
+
+        spend = insight.spend if insight else 0.0
+        cpl = round(spend / leads_count, 2) if leads_count > 0 else 0.0
+
         ad_dict = {
             "ad_id": ad.ad_id,
             "ad_name": ad.ad_name,
             "status": ad.status,
             "effective_status": ad.effective_status,
             "adset_id": ad.adset_id,
+            "adset_name": adset_info["name"],
+            "targeting_summary": adset_info["targeting"]["summary"],
+            "targeting": adset_info["targeting"],
             "campaign_id": ad.campaign_id,
+            "campaign_name": campaign_info["name"],
+            "campaign_objective": campaign_info.get("objective"),
             "start_time": ad.start_time,
             "stop_time": ad.stop_time,
             "meta_created_time": ad.meta_created_time,
@@ -861,7 +903,9 @@ async def dashboard_ads(
             "creative_thumbnail_url": ad.creative_thumbnail_url,
             "call_to_action": ad.call_to_action,
             "page_id": ad.page_id,
+            "page_name": page_name_map.get(ad.page_id, ad.page_id or "Sem Página"),
         }
+
         insight_dict = None
         if insight:
             insight_dict = {
@@ -877,28 +921,45 @@ async def dashboard_ads(
                 "conversions": insight.conversions,
                 "date_start": insight.date_start,
                 "date_stop": insight.date_stop,
+                "cpl": cpl,
             }
 
-        pid = ad.page_id or "__unknown__"
-        if pid not in groups:
-            groups[pid] = {
-                "page_id": pid,
-                "page_name": page_name_map.get(pid, pid if pid != "__unknown__" else "Sem Página"),
+        # Determine group key and label
+        if group_by == "campaign":
+            g_key = ad.campaign_id or "__no_campaign__"
+            g_name = f"Campanha: {campaign_info['name']}"
+            g_sub = f"ID: {ad.campaign_id}" if ad.campaign_id else ""
+        elif group_by == "adset":
+            g_key = ad.adset_id or "__no_adset__"
+            g_name = f"Público / Conjunto: {adset_info['name']}"
+            g_sub = f"Targeting: {adset_info['targeting']['summary']}"
+        else: # "page"
+            g_key = ad.page_id or "__unknown__"
+            g_name = page_name_map.get(g_key, g_key if g_key != "__unknown__" else "Sem Página")
+            g_sub = f"Page ID: {g_key}"
+
+        if g_key not in groups:
+            groups[g_key] = {
+                "group_key": g_key,
+                "group_name": g_name,
+                "group_sub": g_sub,
+                "page_id": ad.page_id,
+                "page_name": page_name_map.get(ad.page_id, "Sem Página"),
                 "ads": [],
                 "total_leads": 0,
                 "total_spend": 0.0,
             }
 
-        groups[pid]["ads"].append({
+        groups[g_key]["ads"].append({
             "ad": ad_dict,
             "insight": insight_dict,
             "leads_count": leads_count,
+            "cpl": cpl,
         })
-        groups[pid]["total_leads"] += leads_count
+        groups[g_key]["total_leads"] += leads_count
         if insight_dict:
-            groups[pid]["total_spend"] += insight_dict["spend"]
+            groups[g_key]["total_spend"] += insight_dict["spend"]
 
-    # All available pages (for filter dropdown)
     all_pages = [
         {"page_id": pid, "page_name": name}
         for pid, name in sorted(page_name_map.items(), key=lambda x: x[1])
@@ -919,6 +980,7 @@ async def dashboard_ads(
         "all_pages": all_pages,
         "page_filter": page_filter,
         "status_filter": status_filter,
+        "group_by": group_by,
         "page": page,
         "total": total,
         "per_page": per_page,
@@ -1118,46 +1180,77 @@ async def api_list_ad_accounts(db: Database = Depends(get_db)):
 async def api_metrics_by_page(
     db: Database = Depends(get_db),
     page_id: str = Query("", description="Filter by a specific Facebook Page ID"),
-    status: str = Query("", description="Filter ads by status (ACTIVE, PAUSED, etc.)"),
+    campaign_id: str = Query("", description="Filter by a specific Campaign ID"),
+    adset_id: str = Query("", description="Filter by a specific AdSet/Audience ID"),
+    status: str = Query("", description="Filter ads by status (ACTIVE, PAUSED, ARCHIVED, DELETED...)"),
     date_preset: str = Query("maximum", description="Insights date preset (maximum, last_30d, last_7d, today...)"),
+    group_by: str = Query("page", description="Group results by 'page', 'campaign', or 'adset'"),
     include_creatives: bool = Query(False, description="Include ad creative details (title, body, image_url)"),
+    include_targeting: bool = Query(True, description="Include audience targeting specifications (age, gender, interests, geo)"),
 ):
     """
-    Returns all ads grouped by Page (client/business) with full performance metrics.
+    Returns full ad performance metrics and hierarchy details designed for external AI analysis.
 
-    Designed for external AI analysis. Each page group contains:
-    - page_id, page_name
-    - Aggregated totals (spend, leads, impressions, clicks)
-    - List of individual ads with their metrics
+    Each group (by Page, Campaign, or AdSet) contains:
+    - Group metadata & totals (spend, leads, CPL, impressions, clicks)
+    - Full list of ads with associated Campaign Name, AdSet Name, Audience Targeting, Dates, and Performance Metrics
 
-    **Usage examples:**
-    - `/api/metrics` → All pages, all time
-    - `/api/metrics?page_id=123456` → Single page
-    - `/api/metrics?status=ACTIVE&date_preset=last_30d` → Only active ads, last 30 days
-    - `/api/metrics?include_creatives=true` → Include ad copy, title and image URLs
+    **Filters & Parameters:**
+    - `page_id`: Filter by page
+    - `campaign_id`: Filter by campaign
+    - `adset_id`: Filter by audience/adset
+    - `status`: Filter by status (ACTIVE, PAUSED, etc.)
+    - `group_by`: Group by `page`, `campaign`, or `adset`
+    - `include_creatives`: Set `true` to include ad copy and image URLs
+    - `include_targeting`: Set `true` to include audience targeting (age, gender, interests, geo, custom audiences)
     """
-    # Build page name map
+    # Pre-cache lookup maps
     page_name_map: dict[str, str] = {}
     for conn in db.meta_connections.find({}, {"page_id": 1, "page_name": 1}):
         pid = conn.get("page_id")
         if pid:
             page_name_map[pid] = conn.get("page_name") or pid
 
-    # Build ad query
+    campaigns_map: dict[str, dict] = {}
+    for cdoc in db.campaigns.find():
+        cid = cdoc.get("campaign_id")
+        if cid:
+            campaigns_map[cid] = {
+                "campaign_name": cdoc.get("campaign_name") or f"Campanha {cid}",
+                "status": cdoc.get("status"),
+                "objective": cdoc.get("objective"),
+            }
+
+    adsets_map: dict[str, dict] = {}
+    for sdoc in db.adsets.find():
+        sid = sdoc.get("adset_id")
+        if sid:
+            s_obj = models.AdSetDetail(sdoc)
+            adsets_map[sid] = {
+                "adset_name": s_obj.adset_name or f"Conjunto {sid}",
+                "status": s_obj.status,
+                "targeting": s_obj.formatted_targeting(),
+            }
+
+    # Build query
     ad_filter: dict = {}
     if page_id:
         ad_filter["page_id"] = page_id
+    if campaign_id:
+        ad_filter["campaign_id"] = campaign_id
+    if adset_id:
+        ad_filter["adset_id"] = adset_id
     if status:
         ad_filter["$or"] = [{"status": status.upper()}, {"effective_status": status.upper()}]
 
-    all_ads = list(db.ads.find(ad_filter).sort([("page_id", 1), ("ad_name", 1)]))
+    sort_key = "page_id" if group_by == "page" else ("campaign_id" if group_by == "campaign" else "adset_id")
+    all_ads = list(db.ads.find(ad_filter).sort([(sort_key, 1), ("ad_name", 1)]))
 
     groups: dict[str, dict] = {}
 
     for ad_doc in all_ads:
         ad = models.AdDetail(ad_doc)
 
-        # Fetch insight for the requested date_preset, fall back to any available
         insight_doc = db.insights.find_one({"object_id": ad.ad_id, "date_preset": date_preset})
         if not insight_doc and date_preset != "maximum":
             insight_doc = db.insights.find_one({"object_id": ad.ad_id})
@@ -1165,19 +1258,45 @@ async def api_metrics_by_page(
         insight = models.AdInsight(insight_doc) if insight_doc else None
         leads_count = db.leads.count_documents({"ad_id": ad.ad_id})
 
+        campaign_info = campaigns_map.get(ad.campaign_id, {
+            "campaign_name": ad.campaign_id or "Sem Campanha",
+            "status": None,
+            "objective": None
+        })
+        adset_info = adsets_map.get(ad.adset_id, {
+            "adset_name": ad.adset_id or "Sem Conjunto",
+            "status": None,
+            "targeting": {"summary": "Sem dados de público", "raw": {}}
+        })
+
+        spend = insight.spend if insight else 0.0
+        cpl = round(spend / leads_count, 2) if leads_count > 0 else 0.0
+
         ad_entry: dict = {
             "ad_id": ad.ad_id,
             "ad_name": ad.ad_name,
             "status": ad.status,
             "effective_status": ad.effective_status,
-            "adset_id": ad.adset_id,
-            "campaign_id": ad.campaign_id,
+            "start_time": ad.start_time,
+            "stop_time": ad.stop_time,
+            "campaign": {
+                "campaign_id": ad.campaign_id,
+                "campaign_name": campaign_info["campaign_name"],
+                "objective": campaign_info["objective"],
+            },
+            "adset": {
+                "adset_id": ad.adset_id,
+                "adset_name": adset_info["adset_name"],
+                "targeting_summary": adset_info["targeting"]["summary"],
+            },
             "leads_captured": leads_count,
+            "cpl": cpl,
             "metrics": {
-                "spend": insight.spend if insight else 0.0,
+                "spend": spend,
                 "impressions": insight.impressions if insight else 0,
                 "clicks": insight.clicks if insight else 0,
                 "reach": insight.reach if insight else 0,
+                "frequency": insight.frequency if insight else 0.0,
                 "ctr": insight.ctr if insight else 0.0,
                 "cpc": insight.cpc if insight else 0.0,
                 "cpm": insight.cpm if insight else 0.0,
@@ -1188,6 +1307,9 @@ async def api_metrics_by_page(
             } if insight else None,
         }
 
+        if include_targeting:
+            ad_entry["adset"]["targeting_details"] = adset_info["targeting"]
+
         if include_creatives:
             ad_entry["creative"] = {
                 "title": ad.creative_title,
@@ -1197,48 +1319,72 @@ async def api_metrics_by_page(
                 "call_to_action": ad.call_to_action,
             }
 
-        pid = ad.page_id or "__unknown__"
-        if pid not in groups:
-            groups[pid] = {
-                "page_id": pid,
-                "page_name": page_name_map.get(pid, pid if pid != "__unknown__" else "Sem Página"),
+        # Determine grouping
+        if group_by == "campaign":
+            g_id = ad.campaign_id or "__no_campaign__"
+            g_title = campaign_info["campaign_name"]
+        elif group_by == "adset":
+            g_id = ad.adset_id or "__no_adset__"
+            g_title = adset_info["adset_name"]
+        else: # "page"
+            g_id = ad.page_id or "__unknown__"
+            g_title = page_name_map.get(g_id, g_id if g_id != "__unknown__" else "Sem Página")
+
+        if g_id not in groups:
+            groups[g_id] = {
+                "group_id": g_id,
+                "group_name": g_title,
+                "page_id": ad.page_id,
+                "page_name": page_name_map.get(ad.page_id, "Sem Página"),
                 "totals": {
                     "ads_count": 0,
                     "total_leads": 0,
                     "total_spend": 0.0,
                     "total_impressions": 0,
                     "total_clicks": 0,
-                    "total_conversions": 0,
+                    "avg_cpl": 0.0,
                 },
                 "ads": [],
             }
 
-        groups[pid]["ads"].append(ad_entry)
-        groups[pid]["totals"]["ads_count"] += 1
-        groups[pid]["totals"]["total_leads"] += leads_count
+        groups[g_id]["ads"].append(ad_entry)
+        groups[g_id]["totals"]["ads_count"] += 1
+        groups[g_id]["totals"]["total_leads"] += leads_count
         if insight:
-            groups[pid]["totals"]["total_spend"] += insight.spend
-            groups[pid]["totals"]["total_impressions"] += insight.impressions
-            groups[pid]["totals"]["total_clicks"] += insight.clicks
-            groups[pid]["totals"]["total_conversions"] += insight.conversions
+            groups[g_id]["totals"]["total_spend"] += insight.spend
+            groups[g_id]["totals"]["total_impressions"] += insight.impressions
+            groups[g_id]["totals"]["total_clicks"] += insight.clicks
 
     result = list(groups.values())
+    for g in result:
+        tot = g["totals"]
+        tot["total_spend"] = round(tot["total_spend"], 2)
+        tot["avg_cpl"] = round(tot["total_spend"] / tot["total_leads"], 2) if tot["total_leads"] > 0 else 0.0
+
+    total_leads_all = sum(g["totals"]["total_leads"] for g in result)
+    total_spend_all = round(sum(g["totals"]["total_spend"] for g in result), 2)
 
     return {
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "filters": {
             "page_id": page_id or None,
+            "campaign_id": campaign_id or None,
+            "adset_id": adset_id or None,
             "status": status or None,
             "date_preset": date_preset,
+            "group_by": group_by,
             "include_creatives": include_creatives,
+            "include_targeting": include_targeting,
         },
         "summary": {
-            "total_pages": len(result),
+            "total_groups": len(result),
             "total_ads": sum(g["totals"]["ads_count"] for g in result),
-            "total_leads": sum(g["totals"]["total_leads"] for g in result),
-            "total_spend": round(sum(g["totals"]["total_spend"] for g in result), 2),
+            "total_leads": total_leads_all,
+            "total_spend": total_spend_all,
+            "avg_cpl": round(total_spend_all / total_leads_all, 2) if total_leads_all > 0 else 0.0,
             "total_impressions": sum(g["totals"]["total_impressions"] for g in result),
             "total_clicks": sum(g["totals"]["total_clicks"] for g in result),
         },
-        "pages": result,
+        "groups": result,
     }
+
